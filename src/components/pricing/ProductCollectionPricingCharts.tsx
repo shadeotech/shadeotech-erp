@@ -11,11 +11,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { usePricingChartStore, type CollectionId } from '@/stores/pricingChartStore'
+import { usePricingChartStore, type CollectionId, type DimensionPricingTable } from '@/stores/pricingChartStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/components/ui/use-toast'
 import { PricingChart } from './PricingChart'
-import { Save, Loader2 } from 'lucide-react'
+import { Save, Loader2, Upload, Download } from 'lucide-react'
 
 const COLLECTIONS: { id: CollectionId; name: string }[] = [
   { id: 'duo_basic', name: 'Duo Basic' },
@@ -34,12 +34,55 @@ const COLLECTIONS: { id: CollectionId; name: string }[] = [
   { id: 'uni_shades', name: 'Uni Shades' },
 ]
 
+function exportChartToCsv(table: DimensionPricingTable, name: string) {
+  const { widthValues, lengthValues, prices } = table
+  const header = ['Length \\ Width', ...widthValues.map(String)].join(',')
+  const rows = lengthValues.map(len =>
+    [String(len), ...widthValues.map(w => String(prices[String(len)]?.[String(w)] ?? ''))].join(',')
+  )
+  const csv = [header, ...rows].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${name.replace(/\s+/g, '_').toLowerCase()}_pricing.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function parsePricingCsv(csv: string): { widthValues: number[]; lengthValues: number[]; prices: Record<string, Record<string, number>> } | string {
+  const lines = csv.trim().split('\n').map(l => l.trim()).filter(Boolean)
+  if (lines.length < 2) return 'CSV must have at least a header row and one data row.'
+
+  const headerCells = lines[0].split(',').map(c => c.trim())
+  const widthValues = headerCells.slice(1).map(Number).filter(n => !isNaN(n) && n > 0)
+  if (widthValues.length === 0) return 'Header row must contain width values after the first column.'
+
+  const lengthValues: number[] = []
+  const prices: Record<string, Record<string, number>> = {}
+
+  for (let i = 1; i < lines.length; i++) {
+    const cells = lines[i].split(',').map(c => c.trim())
+    const len = Number(cells[0])
+    if (isNaN(len) || len <= 0) return `Row ${i + 1}: invalid length value "${cells[0]}".`
+    lengthValues.push(len)
+    prices[String(len)] = {}
+    widthValues.forEach((w, j) => {
+      const val = Number(cells[j + 1])
+      prices[String(len)][String(w)] = isNaN(val) ? 0 : val
+    })
+  }
+
+  return { widthValues, lengthValues, prices }
+}
+
 export function ProductCollectionPricingCharts() {
   const { token } = useAuthStore()
   const { toast } = useToast()
-  const { charts, initializeDefaultCharts, getChart, fetchCharts, saveCharts, loading, saving } = usePricingChartStore()
+  const { charts, initializeDefaultCharts, getChart, fetchCharts, saveCharts, bulkImportMainTable, loading, saving } = usePricingChartStore()
   const [selectedCollection, setSelectedCollection] = useState<CollectionId>('duo_basic')
   const [selectedSubChart, setSelectedSubChart] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
 
   useEffect(() => {
     // Fetch charts from API on mount
@@ -51,6 +94,34 @@ export function ProductCollectionPricingCharts() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token])
+
+  const handleExportCsv = () => {
+    const chart = getChart(selectedCollection, selectedSubChart || undefined)
+    if (!chart) return
+    const name = COLLECTIONS.find(c => c.id === selectedCollection)?.name || selectedCollection
+    const label = selectedSubChart ? `${name} - ${selectedSubChart}` : name
+    exportChartToCsv(chart.mainTable, label)
+  }
+
+  const handleImportCsv = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string
+      const result = parsePricingCsv(text)
+      if (typeof result === 'string') {
+        toast({ title: 'CSV Error', description: result, variant: 'destructive' })
+      } else {
+        bulkImportMainTable(selectedCollection, result.widthValues, result.lengthValues, result.prices, selectedSubChart || undefined)
+        toast({ title: 'Imported', description: `Price list updated — click Save Charts to persist.` })
+      }
+      setImporting(false)
+      e.target.value = ''
+    }
+    reader.readAsText(file)
+  }
 
   const handleSave = async () => {
     if (!token) {
@@ -111,19 +182,38 @@ export function ProductCollectionPricingCharts() {
               Manage pricing charts for different product collections. Click on any price cell to edit.
             </CardDescription>
           </div>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save className="mr-2 h-4 w-4" />
-                Save Charts
-              </>
-            )}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleExportCsv}>
+              <Download className="mr-2 h-4 w-4" />
+              Download CSV
+            </Button>
+            <label className="cursor-pointer">
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={handleImportCsv}
+                disabled={importing}
+              />
+              <div className={`inline-flex items-center justify-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors ${importing ? 'opacity-50 pointer-events-none' : ''}`}>
+                {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                {importing ? 'Importing…' : 'Upload CSV'}
+              </div>
+            </label>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  Save Charts
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-6">

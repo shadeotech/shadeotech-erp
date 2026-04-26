@@ -71,6 +71,7 @@ interface PricingChartState {
   removeCassetteType: (collectionId: CollectionId, type: string, subChartId?: string) => void
   updateNotes: (collectionId: CollectionId, mainNote: string, cassetteNote?: string, subChartId?: string) => void
   bulkIncreasePrices: (collectionId: CollectionId, percent: number, flat: number, subChartId?: string) => void
+  bulkImportMainTable: (collectionId: CollectionId, widthValues: number[], lengthValues: number[], prices: Record<string, Record<string, number>>, subChartId?: string) => void
   initializeDefaultCharts: () => void
   fetchCharts: (token: string) => Promise<void>
   saveCharts: (token: string) => Promise<boolean>
@@ -477,6 +478,27 @@ export const usePricingChartStore = create<PricingChartState>()(
           }
 
           updatePrices(chart.mainTable, chart.cassetteTable)
+          return { charts }
+        })
+      },
+
+      bulkImportMainTable: (collectionId, widthValues, lengthValues, prices, subChartId) => {
+        set((state) => {
+          const charts = { ...state.charts }
+          const chart = charts[collectionId]
+          if (!chart) return state
+
+          const newTable: DimensionPricingTable = { widthValues, lengthValues, prices }
+
+          if (subChartId && chart.subCharts) {
+            const subChart = chart.subCharts.find(sc => sc.id === subChartId)
+            if (subChart) {
+              subChart.mainTable = newTable
+              return { charts }
+            }
+          }
+
+          chart.mainTable = newTable
           return { charts }
         })
       },
