@@ -5,6 +5,19 @@ import { useState, useEffect, useRef } from 'react'
 /** Default factory / origin address when none is provided from settings */
 const DEFAULT_ORIGIN_ADDRESS = '3235 Skylane Dr. Unit 111, Carrollton, TX 75006'
 
+/** Load the Maps script if it isn't already in the DOM */
+function loadMapsScriptIfNeeded(): void {
+  if (typeof window === 'undefined') return
+  if (window.google?.maps?.DistanceMatrixService) return
+  if (document.querySelector('script[src*="maps.googleapis.com/maps/api/js"]')) return
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+  if (!apiKey) return
+  const s = document.createElement('script')
+  s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
+  s.async = true
+  document.head.appendChild(s)
+}
+
 /** Minimum characters before we attempt a route calculation */
 const MIN_ADDRESS_LENGTH = 10
 
@@ -87,6 +100,9 @@ export function useCommuteTime(
   useEffect(() => {
     // Clear any pending debounce
     if (debounceRef.current) clearTimeout(debounceRef.current)
+
+    // Ensure the Maps script is loaded (pages without AddressAutocomplete won't have it)
+    loadMapsScriptIfNeeded()
 
     // Reset if address is too short
     if (!destinationAddress || destinationAddress.length < MIN_ADDRESS_LENGTH) {
