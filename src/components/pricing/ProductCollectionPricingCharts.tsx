@@ -34,6 +34,30 @@ const COLLECTIONS: { id: CollectionId; name: string }[] = [
   { id: 'uni_shades', name: 'Uni Shades' },
 ]
 
+function downloadTemplate() {
+  const widths = [24, 30, 36, 48, 60, 72, 84, 96, 108, 120, 132, 144]
+  const lengths = [36, 48, 60, 72, 84, 96, 108, 120, 132, 144]
+  const header = ['Length \\ Width', ...widths.map(String)].join(',')
+  const rows = lengths.map(len => [String(len), ...widths.map(() => '0')].join(','))
+  const notes = [
+    '# PRICING TEMPLATE',
+    '# - First column: Length (inches)',
+    '# - First row: Width (inches)',
+    '# - Fill in each cell with the price in dollars (numbers only, no $ sign)',
+    '# - Do not change the header row or add extra columns/rows',
+    '# - Delete these comment lines before uploading',
+    '',
+  ]
+  const csv = [...notes, header, ...rows].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'pricing_template.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 function exportChartToCsv(table: DimensionPricingTable, name: string) {
   const { widthValues, lengthValues, prices } = table
   const header = ['Length \\ Width', ...widthValues.map(String)].join(',')
@@ -51,7 +75,7 @@ function exportChartToCsv(table: DimensionPricingTable, name: string) {
 }
 
 function parsePricingCsv(csv: string): { widthValues: number[]; lengthValues: number[]; prices: Record<string, Record<string, number>> } | string {
-  const lines = csv.trim().split('\n').map(l => l.trim()).filter(Boolean)
+  const lines = csv.trim().split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))
   if (lines.length < 2) return 'CSV must have at least a header row and one data row.'
 
   const headerCells = lines[0].split(',').map(c => c.trim())
@@ -183,9 +207,13 @@ export function ProductCollectionPricingCharts() {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={downloadTemplate}>
+              <Download className="mr-2 h-4 w-4" />
+              Template
+            </Button>
             <Button variant="outline" size="sm" onClick={handleExportCsv}>
               <Download className="mr-2 h-4 w-4" />
-              Download CSV
+              Export CSV
             </Button>
             <label className="cursor-pointer">
               <input
