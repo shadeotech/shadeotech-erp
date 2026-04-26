@@ -44,6 +44,12 @@ function toApiExpense(doc: any) {
     description: doc.description,
     amount: doc.amount,
     vendor: doc.vendor || '',
+    payee: doc.payee || doc.vendor || '',
+    customerId: doc.customerId || '',
+    paymentAccount: doc.paymentAccount || '',
+    refNo: doc.refNo || '',
+    poNumber: doc.poNumber || '',
+    sideMark: doc.sideMark || '',
     paymentMethod: doc.paymentMethod,
     createdBy: doc.createdBy,
     createdAt: doc.createdAt ? new Date(doc.createdAt) : new Date(),
@@ -120,9 +126,13 @@ export async function POST(request: NextRequest) {
     await connectDB()
 
     const body = await request.json()
-    const { date, category, description, amount, vendor, paymentMethod } = body
+    const {
+      date, category, description, amount,
+      vendor, payee, customerId,
+      paymentAccount, refNo, poNumber, sideMark,
+      paymentMethod,
+    } = body
 
-    // Validation
     if (!date || !category || !description || amount === undefined || amount === null) {
       return NextResponse.json(
         { error: 'Date, category, description, and amount are required' },
@@ -143,6 +153,12 @@ export async function POST(request: NextRequest) {
       description: description.trim(),
       amount,
       vendor: vendor?.trim() || undefined,
+      payee: (payee || vendor)?.trim() || undefined,
+      customerId: customerId?.trim() || undefined,
+      paymentAccount: paymentAccount?.trim() || undefined,
+      refNo: refNo?.trim() || undefined,
+      poNumber: poNumber?.trim() || undefined,
+      sideMark: sideMark?.trim() || undefined,
       paymentMethod: paymentMethod || 'Credit Card',
       createdBy: auth.userId,
     })

@@ -193,9 +193,30 @@ export default function AccountingPage() {
     category: '',
     description: '',
     amount: '',
-    vendor: '',
+    payee: '',
+    customerId: '',
+    paymentAccount: '',
+    refNo: '',
+    poNumber: '',
+    sideMark: '',
     paymentMethod: '',
   })
+
+  // Customer list for Payee dropdown
+  const [payeeCustomers, setPayeeCustomers] = useState<{ id: string; name: string; sideMark: string }[]>([])
+  useEffect(() => {
+    if (!token) return
+    fetch('/api/customers?limit=500', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : { customers: [] })
+      .then(data => {
+        const list = (data.customers || []).map((c: any) => ({
+          id: c._id || c.id,
+          name: [c.firstName, c.lastName].filter(Boolean).join(' ') || c.companyName || c.email || 'Unknown',
+          sideMark: c.sideMark || '',
+        }))
+        setPayeeCustomers(list)
+      })
+  }, [token])
 
   const [salesFilters, setSalesFilters] = useState({
     search: '',
@@ -364,7 +385,12 @@ export default function AccountingPage() {
           category: expenseForm.category,
           description: expenseForm.description,
           amount: parseFloat(expenseForm.amount),
-          vendor: expenseForm.vendor || undefined,
+          payee: expenseForm.payee || undefined,
+          customerId: expenseForm.customerId || undefined,
+          paymentAccount: expenseForm.paymentAccount || undefined,
+          refNo: expenseForm.refNo || undefined,
+          poNumber: expenseForm.poNumber || undefined,
+          sideMark: expenseForm.sideMark || undefined,
           paymentMethod: expenseForm.paymentMethod || 'Credit Card',
         }),
       })
@@ -385,7 +411,12 @@ export default function AccountingPage() {
         category: '',
         description: '',
         amount: '',
-        vendor: '',
+        payee: '',
+        customerId: '',
+        paymentAccount: '',
+        refNo: '',
+        poNumber: '',
+        sideMark: '',
         paymentMethod: '',
       })
       setExpenseDialogOpen(false)
@@ -418,25 +449,25 @@ export default function AccountingPage() {
               Add Expense
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Add Expense</DialogTitle>
-              <DialogDescription>
-                Record a new business expense
-              </DialogDescription>
+              <DialogDescription>Record a new business expense</DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
+            <div className="space-y-4 py-1">
+
+              {/* Row 1: Date + Category */}
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Date</Label>
+                <div className="space-y-1.5">
+                  <Label>Date <span className="text-red-500">*</span></Label>
                   <Input
                     type="date"
                     value={expenseForm.date}
                     onChange={(e) => setExpenseForm({ ...expenseForm, date: e.target.value })}
                   />
                 </div>
-                <div>
-                  <Label>Category</Label>
+                <div className="space-y-1.5">
+                  <Label>Category <span className="text-red-500">*</span></Label>
                   <Select value={expenseForm.category} onValueChange={(v) => setExpenseForm({ ...expenseForm, category: v })}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select category" />
@@ -449,18 +480,92 @@ export default function AccountingPage() {
                   </Select>
                 </div>
               </div>
-              <div>
-                <Label>Description</Label>
+
+              {/* Row 2: Payee + Payment Account */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Payee</Label>
+                  <Select
+                    value={expenseForm.customerId || '__custom__'}
+                    onValueChange={(v) => {
+                      if (v === '__custom__') {
+                        setExpenseForm({ ...expenseForm, customerId: '', payee: '', sideMark: '' })
+                      } else {
+                        const c = payeeCustomers.find(x => x.id === v)
+                        setExpenseForm({
+                          ...expenseForm,
+                          customerId: v,
+                          payee: c?.name || '',
+                          sideMark: c?.sideMark || '',
+                        })
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select payee (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__custom__">— None / Type below —</SelectItem>
+                      {payeeCustomers.map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {/* Allow manual entry if no customer selected */}
+                  {!expenseForm.customerId && (
+                    <Input
+                      value={expenseForm.payee}
+                      onChange={(e) => setExpenseForm({ ...expenseForm, payee: e.target.value })}
+                      placeholder="Or type payee name"
+                      className="mt-1.5"
+                    />
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Payment Account</Label>
+                  <Select value={expenseForm.paymentAccount} onValueChange={(v) => setExpenseForm({ ...expenseForm, paymentAccount: v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select account" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Checking Account">Checking Account</SelectItem>
+                      <SelectItem value="Savings Account">Savings Account</SelectItem>
+                      <SelectItem value="Credit Card - Visa">Credit Card – Visa</SelectItem>
+                      <SelectItem value="Credit Card - Amex">Credit Card – Amex</SelectItem>
+                      <SelectItem value="Credit Card - Mastercard">Credit Card – Mastercard</SelectItem>
+                      <SelectItem value="PayPal">PayPal</SelectItem>
+                      <SelectItem value="Petty Cash">Petty Cash</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Side Mark — auto-filled, editable */}
+              <div className="space-y-1.5">
+                <Label>Side Mark</Label>
+                <Input
+                  value={expenseForm.sideMark}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, sideMark: e.target.value })}
+                  placeholder="Auto-filled from customer, or enter manually"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-1.5">
+                <Label>Description <span className="text-red-500">*</span></Label>
                 <Textarea
                   value={expenseForm.description}
                   onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
                   placeholder="Enter expense description"
-                  rows={3}
+                  rows={2}
                 />
               </div>
+
+              {/* Row 3: Amount + Payment Method */}
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Amount</Label>
+                <div className="space-y-1.5">
+                  <Label>Amount <span className="text-red-500">*</span></Label>
                   <Input
                     type="number"
                     step="0.01"
@@ -469,7 +574,7 @@ export default function AccountingPage() {
                     placeholder="0.00"
                   />
                 </div>
-                <div>
+                <div className="space-y-1.5">
                   <Label>Payment Method</Label>
                   <Select value={expenseForm.paymentMethod} onValueChange={(v) => setExpenseForm({ ...expenseForm, paymentMethod: v })}>
                     <SelectTrigger>
@@ -483,14 +588,27 @@ export default function AccountingPage() {
                   </Select>
                 </div>
               </div>
-              <div>
-                <Label>Vendor</Label>
-                <Input
-                  value={expenseForm.vendor}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, vendor: e.target.value })}
-                  placeholder="Vendor name (optional)"
-                />
+
+              {/* Row 4: Ref No. + P.O. Number */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Ref No.</Label>
+                  <Input
+                    value={expenseForm.refNo}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, refNo: e.target.value })}
+                    placeholder="Reference number"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>P.O. Number</Label>
+                  <Input
+                    value={expenseForm.poNumber}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, poNumber: e.target.value })}
+                    placeholder="Purchase order number"
+                  />
+                </div>
               </div>
+
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setExpenseDialogOpen(false)} disabled={submitting}>
@@ -613,7 +731,15 @@ export default function AccountingPage() {
                     <div key={expense.id} className="flex items-center justify-between border-b dark:border-gray-700 pb-3 last:border-0">
                       <div>
                         <p className="font-medium text-gray-900 dark:text-white">{expense.description}</p>
-                        <p className="text-xs text-muted-foreground">{expense.category}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-muted-foreground">{expense.category}</span>
+                          {(expense.payee || expense.vendor) && (
+                            <span className="text-xs text-muted-foreground">· {expense.payee || expense.vendor}</span>
+                          )}
+                          {expense.sideMark && (
+                            <span className="text-xs font-mono text-amber-600">{expense.sideMark}</span>
+                          )}
+                        </div>
                       </div>
                       <div className="text-right">
                         <p className="font-medium text-gray-900 dark:text-white">{formatCurrency(expense.amount)}</p>
@@ -765,28 +891,46 @@ export default function AccountingPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Date</TableHead>
+                        <TableHead>Payee</TableHead>
                         <TableHead>Category</TableHead>
                         <TableHead>Description</TableHead>
-                        <TableHead>Vendor</TableHead>
-                        <TableHead>Payment Method</TableHead>
+                        <TableHead>Side Mark</TableHead>
+                        <TableHead>Account</TableHead>
+                        <TableHead>Ref No.</TableHead>
+                        <TableHead>P.O. #</TableHead>
+                        <TableHead>Method</TableHead>
                         <TableHead className="text-right">Amount</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {expenses.map((expense) => (
                         <TableRow key={expense.id || expense._id}>
-                          <TableCell className="text-muted-foreground">
+                          <TableCell className="text-muted-foreground whitespace-nowrap">
                             {format(expense.date, 'MMM dd, yyyy')}
                           </TableCell>
+                          <TableCell className="font-medium">
+                            {expense.payee || expense.vendor || '-'}
+                          </TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="bg-gray-500/10 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-0">
+                            <Badge variant="outline" className="bg-gray-500/10 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-0 whitespace-nowrap">
                               {expense.category}
                             </Badge>
                           </TableCell>
-                          <TableCell>{expense.description}</TableCell>
-                          <TableCell>{expense.vendor || '-'}</TableCell>
-                          <TableCell>{expense.paymentMethod}</TableCell>
-                          <TableCell className="text-right font-medium text-red-600 dark:text-red-400">
+                          <TableCell className="max-w-[200px] truncate">{expense.description}</TableCell>
+                          <TableCell className="text-muted-foreground font-mono text-xs">
+                            {expense.sideMark || '-'}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
+                            {expense.paymentAccount || '-'}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground text-sm">
+                            {expense.refNo || '-'}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground text-sm">
+                            {expense.poNumber || '-'}
+                          </TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">{expense.paymentMethod}</TableCell>
+                          <TableCell className="text-right font-medium text-red-600 dark:text-red-400 whitespace-nowrap">
                             {formatCurrency(expense.amount)}
                           </TableCell>
                         </TableRow>

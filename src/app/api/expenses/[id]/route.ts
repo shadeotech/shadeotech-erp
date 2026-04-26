@@ -45,6 +45,12 @@ function toApiExpense(doc: any) {
     description: doc.description,
     amount: doc.amount,
     vendor: doc.vendor || '',
+    payee: doc.payee || doc.vendor || '',
+    customerId: doc.customerId || '',
+    paymentAccount: doc.paymentAccount || '',
+    refNo: doc.refNo || '',
+    poNumber: doc.poNumber || '',
+    sideMark: doc.sideMark || '',
     paymentMethod: doc.paymentMethod,
     createdBy: doc.createdBy,
     createdAt: doc.createdAt ? new Date(doc.createdAt) : new Date(),
@@ -116,33 +122,30 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { date, category, description, amount, vendor, paymentMethod } = body
+    const {
+      date, category, description, amount,
+      vendor, payee, customerId,
+      paymentAccount, refNo, poNumber, sideMark,
+      paymentMethod,
+    } = body
 
-    // Update fields if provided
-    if (date !== undefined) {
-      expense.date = new Date(date)
-    }
-    if (category !== undefined) {
-      expense.category = category
-    }
-    if (description !== undefined) {
-      expense.description = description.trim()
-    }
+    if (date !== undefined) expense.date = new Date(date)
+    if (category !== undefined) expense.category = category
+    if (description !== undefined) expense.description = description.trim()
     if (amount !== undefined) {
       if (typeof amount !== 'number' || amount < 0) {
-        return NextResponse.json(
-          { error: 'Amount must be a positive number' },
-          { status: 400 }
-        )
+        return NextResponse.json({ error: 'Amount must be a positive number' }, { status: 400 })
       }
       expense.amount = amount
     }
-    if (vendor !== undefined) {
-      expense.vendor = vendor?.trim() || undefined
-    }
-    if (paymentMethod !== undefined) {
-      expense.paymentMethod = paymentMethod
-    }
+    if (vendor !== undefined) expense.vendor = vendor?.trim() || undefined
+    if (payee !== undefined) expense.payee = payee?.trim() || undefined
+    if (customerId !== undefined) expense.customerId = customerId?.trim() || undefined
+    if (paymentAccount !== undefined) expense.paymentAccount = paymentAccount?.trim() || undefined
+    if (refNo !== undefined) expense.refNo = refNo?.trim() || undefined
+    if (poNumber !== undefined) expense.poNumber = poNumber?.trim() || undefined
+    if (sideMark !== undefined) expense.sideMark = sideMark?.trim() || undefined
+    if (paymentMethod !== undefined) expense.paymentMethod = paymentMethod
 
     await expense.save()
 
