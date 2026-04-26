@@ -144,7 +144,7 @@ interface AssignableUser {
 
 const statusStyles: Record<string, string> = {
   LEAD: 'bg-blue-50 text-blue-700 border-blue-200',
-  CUSTOMER: 'bg-green-50 text-green-700 border-green-200',
+  CUSTOMER: 'bg-amber-50 text-amber-700 border-amber-200',
 }
 
 const quoteStatusStyles: Record<string, string> = {
@@ -152,7 +152,7 @@ const quoteStatusStyles: Record<string, string> = {
   SENT: 'bg-blue-50 text-blue-700 border-blue-200',
   NEGOTIATION: 'bg-yellow-50 text-yellow-700 border-yellow-200',
   POSTPONED: 'bg-orange-50 text-orange-700 border-orange-200',
-  WON: 'bg-green-50 text-green-700 border-green-200',
+  WON: 'bg-amber-50 text-amber-700 border-amber-200',
   LOST: 'bg-red-50 text-red-700 border-red-200',
   EXPIRED: 'bg-gray-100 text-gray-500 border-gray-200',
 }
@@ -1401,9 +1401,9 @@ export default function CustomerDetailPage() {
               const segmentBg = red
                 ? 'bg-red-500 text-white'
                 : green
-                  ? 'bg-emerald-500 text-white'
+                  ? 'bg-amber-600 text-white'
                   : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
-              const chevronColor = red ? 'border-l-red-500' : green ? 'border-l-emerald-500' : 'border-l-gray-100 dark:border-l-gray-800'
+              const chevronColor = red ? 'border-l-red-500' : green ? 'border-l-amber-600' : 'border-l-gray-100 dark:border-l-gray-800'
               return (
                 <div key={label} className="flex items-center shrink-0">
                   <div
@@ -1461,7 +1461,7 @@ export default function CustomerDetailPage() {
                   displayClassName={cn('text-xs rounded-full px-2.5 py-0.5 font-medium border', {
                     'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/20 dark:text-sky-400 dark:border-sky-800/40': customer.status === 'LEAD',
                     'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800/40': customer.status === 'CONTACTED' || customer.status === 'QUALIFIED',
-                    'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/40': customer.status === 'CUSTOMER',
+                    'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800/40': customer.status === 'CUSTOMER',
                     'bg-gray-100 text-gray-500 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700': customer.status === 'INACTIVE',
                   })}
                   disabled={!isCrmCustomer}
@@ -3436,7 +3436,7 @@ export default function CustomerDetailPage() {
                       <div className="flex items-center justify-between">
                         <CardTitle className="text-base">Portal Account</CardTitle>
                         {portalStatus.hasAccount ? (
-                          <Badge className={portalStatus.isActive ? 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400 border-0' : 'bg-gray-100 text-gray-600 border-0'}>
+                          <Badge className={portalStatus.isActive ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400 border-0' : 'bg-gray-100 text-gray-600 border-0'}>
                             {portalStatus.isActive ? 'Active' : 'Inactive'}
                           </Badge>
                         ) : (

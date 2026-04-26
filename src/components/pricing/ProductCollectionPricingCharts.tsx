@@ -74,28 +74,68 @@ function exportChartToCsv(table: DimensionPricingTable, name: string) {
   URL.revokeObjectURL(url)
 }
 
+/** Parse a single CSV line respecting quoted fields (handles Excel-style CSV). */
+function parseCsvRow(line: string, sep: string): string[] {
+  const fields: string[] = []
+  let cur = ''
+  let inQuote = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQuote && line[i + 1] === '"') { cur += '"'; i++ }
+      else { inQuote = !inQuote }
+    } else if (!inQuote && line.startsWith(sep, i)) {
+      fields.push(cur.trim())
+      cur = ''
+      i += sep.length - 1
+    } else {
+      cur += ch
+    }
+  }
+  fields.push(cur.trim())
+  return fields
+}
+
 function parsePricingCsv(csv: string): { widthValues: number[]; lengthValues: number[]; prices: Record<string, Record<string, number>> } | string {
-  const lines = csv.trim().split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))
+  // Strip BOM and normalize line endings
+  const cleaned = csv.replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+
+  const lines = cleaned
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith('#'))
+
   if (lines.length < 2) return 'CSV must have at least a header row and one data row.'
 
-  const headerCells = lines[0].split(',').map(c => c.trim())
-  const widthValues = headerCells.slice(1).map(Number).filter(n => !isNaN(n) && n > 0)
-  if (widthValues.length === 0) return 'Header row must contain width values after the first column.'
+  // Auto-detect separator: semicolons (some regional Excel) or commas
+  const sep = lines[0].includes(';') && !lines[0].includes(',') ? ';' : ','
+
+  const headerCells = parseCsvRow(lines[0], sep)
+  // Width values are all header cells after the first column that parse as positive numbers
+  const widthValues = headerCells.slice(1).map(c => Number(c.replace(/[^0-9.]/g, ''))).filter(n => !isNaN(n) && n > 0)
+  if (widthValues.length === 0) {
+    return `Header row must contain numeric width values in columns 2+. Got: "${headerCells.slice(1, 5).join('", "')}". Make sure your first row has widths like 24, 30, 36…`
+  }
 
   const lengthValues: number[] = []
   const prices: Record<string, Record<string, number>> = {}
 
   for (let i = 1; i < lines.length; i++) {
-    const cells = lines[i].split(',').map(c => c.trim())
-    const len = Number(cells[0])
-    if (isNaN(len) || len <= 0) return `Row ${i + 1}: invalid length value "${cells[0]}".`
+    const cells = parseCsvRow(lines[i], sep)
+    // Strip non-numeric chars from length cell (handles "36"" or "$36" etc.)
+    const rawLen = cells[0].replace(/[^0-9.]/g, '')
+    const len = Number(rawLen)
+    if (isNaN(len) || len <= 0) continue // skip blank/invalid rows silently
     lengthValues.push(len)
     prices[String(len)] = {}
     widthValues.forEach((w, j) => {
-      const val = Number(cells[j + 1])
+      const rawVal = (cells[j + 1] || '').replace(/[^0-9.]/g, '')
+      const val = Number(rawVal)
       prices[String(len)][String(w)] = isNaN(val) ? 0 : val
     })
   }
+
+  if (lengthValues.length === 0) return 'No valid data rows found. Make sure the first column contains length values (numbers).'
 
   return { widthValues, lengthValues, prices }
 }
@@ -218,7 +258,7 @@ export function ProductCollectionPricingCharts() {
             <label className="cursor-pointer">
               <input
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,.tsv,text/csv,text/plain"
                 className="hidden"
                 onChange={handleImportCsv}
                 disabled={importing}

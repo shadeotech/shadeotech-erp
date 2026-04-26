@@ -158,7 +158,7 @@ export function WorkflowsTab() {
                 </td>
                 <td className="px-4 py-3 text-center">
                   {w.emailEnabled ? (
-                    <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">
+                    <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50">
                       <Mail className="h-3 w-3 mr-1" />On
                     </Badge>
                   ) : (
@@ -169,7 +169,7 @@ export function WorkflowsTab() {
                 </td>
                 <td className="px-4 py-3 text-center">
                   {w.smsEnabled ? (
-                    <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">
+                    <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50">
                       <MessageSquare className="h-3 w-3 mr-1" />On
                     </Badge>
                   ) : (
