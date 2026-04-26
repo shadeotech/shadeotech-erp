@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(grep -n \"^                  </Dialog>$\\\\|^              </Dialog>$\\\\|^            </Dialog>$\" /Users/noah/Downloads/shad-back-main/src/app/\\\\\\(dashboard\\\\\\)/customers/\\\\[id\\\\]/page.tsx)",
+      "Bash(awk -F: '$2 < 2300 && $2 > 1600')",
+      "Bash(awk 'NR>=1673 && NR<=2280' /Users/noah/Downloads/shad-back-main/src/app/\\\\\\(dashboard\\\\\\)/customers/\\\\[id\\\\]/page.tsx)",
+      "WebFetch(domain:www.notion.so)"
+    ]
+  }
+}
