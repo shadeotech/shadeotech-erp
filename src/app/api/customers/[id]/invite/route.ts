@@ -75,39 +75,37 @@ export async function POST(
 
   const customerName = [customer.firstName, customer.lastName].filter(Boolean).join(' ') || 'Customer'
 
-  // Send welcome email (non-blocking)
-  try {
-    await sendEmail({
-      to: email,
-      subject: 'Your Shadeotech Customer Portal Access',
-      html: `
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://erpshadeotech.vercel.app'
+
+  // Fire-and-forget — do NOT await; avoids Vercel 10s timeout
+  sendEmail({
+    to: email,
+    subject: 'Your Shadeotech Customer Portal Access',
+    html: `
 <!DOCTYPE html>
 <html>
-<body style="font-family:Arial,sans-serif;color:#1f2937;max-width:560px;margin:0 auto;padding:24px;">
+<body style="font-family:Arial,sans-serif;color:#1f2937;max-width:560px;margin:0 auto;padding:0;">
   <div style="background:linear-gradient(135deg,#111,#1a1a1a);padding:28px 24px;border-radius:12px 12px 0 0;text-align:center;">
-    <h1 style="color:#c8864e;margin:0;font-size:22px;letter-spacing:-0.3px;">Shadeotech</h1>
-    <p style="color:rgba(255,255,255,0.5);margin:6px 0 0;font-size:12px;letter-spacing:3px;text-transform:uppercase;">Customer Portal</p>
+    <img src="${appUrl}/images/logo.png" alt="Shadeotech" style="height:48px;object-fit:contain;margin-bottom:8px;" />
+    <p style="color:rgba(255,255,255,0.5);margin:4px 0 0;font-size:12px;letter-spacing:3px;text-transform:uppercase;">Customer Portal</p>
   </div>
   <div style="background:#f9fafb;padding:28px 24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;">
     <p style="font-size:15px;">Hi ${customerName},</p>
     <p>Your Shadeotech customer portal account is ready. Use the credentials below to log in and view your quotes, invoices, and project status.</p>
     <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px 20px;margin:20px 0;">
       <p style="margin:0 0 8px;font-size:13px;color:#6b7280;">Login URL</p>
-      <p style="margin:0 0 16px;font-weight:600;color:#111;">${process.env.NEXT_PUBLIC_APP_URL || 'https://app.shadeotech.com'}/login</p>
+      <p style="margin:0 0 16px;font-weight:600;color:#111;">${appUrl}/login</p>
       <p style="margin:0 0 8px;font-size:13px;color:#6b7280;">Email</p>
       <p style="margin:0 0 16px;font-weight:600;color:#111;">${email}</p>
       <p style="margin:0 0 8px;font-size:13px;color:#6b7280;">Temporary Password</p>
       <p style="margin:0;font-weight:700;font-size:18px;color:#c8864e;letter-spacing:1px;">${tempPassword}</p>
     </div>
     <p style="font-size:13px;color:#6b7280;">Please change your password after your first login.</p>
-    <p style="color:#6b7280;font-size:12px;margin-top:24px;">Shadeotech &bull; billing@shadeotech.com</p>
+    <p style="color:#6b7280;font-size:12px;margin-top:24px;">Shadeotech &bull; office@shadeotech.com</p>
   </div>
 </body>
 </html>`,
-    })
-  } catch (err) {
-    console.error('[invite] Email failed:', err)
-  }
+  }).catch(err => console.error('[invite] Email failed:', err))
 
   return NextResponse.json({
     alreadyExists: false,

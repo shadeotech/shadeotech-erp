@@ -28,20 +28,18 @@ export async function POST(request: NextRequest) {
     { resetToken: token, resetTokenExpiry: expiry }
   )
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.shadeotech.com'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://erpshadeotech.vercel.app'
   const resetUrl = `${appUrl}/reset-password?token=${token}`
 
-  try {
-    await sendEmail({
-      to: user.email,
-      subject: 'Reset Your Shadeotech Portal Password',
-      html: `
+  sendEmail({
+    to: user.email,
+    subject: 'Reset Your Shadeotech Portal Password',
+    html: `
 <!DOCTYPE html>
 <html>
-<body style="font-family:Arial,sans-serif;color:#1f2937;max-width:560px;margin:0 auto;padding:24px;">
+<body style="font-family:Arial,sans-serif;color:#1f2937;max-width:560px;margin:0 auto;padding:0;">
   <div style="background:linear-gradient(135deg,#111,#1a1a1a);padding:28px 24px;border-radius:12px 12px 0 0;text-align:center;">
-    <h1 style="color:#c8864e;margin:0;font-size:22px;">Shadeotech</h1>
-    <p style="color:rgba(255,255,255,0.5);margin:6px 0 0;font-size:12px;letter-spacing:3px;text-transform:uppercase;">Customer Portal</p>
+    <img src="${appUrl}/images/logo.png" alt="Shadeotech" style="height:48px;object-fit:contain;margin-bottom:8px;" />
   </div>
   <div style="background:#f9fafb;padding:28px 24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;">
     <p style="font-size:15px;">Hi ${user.firstName},</p>
@@ -52,14 +50,12 @@ export async function POST(request: NextRequest) {
     <p style="font-size:13px;color:#6b7280;">If the button doesn't work, copy and paste this URL into your browser:</p>
     <p style="font-size:12px;color:#c8864e;word-break:break-all;">${resetUrl}</p>
     <p style="font-size:13px;color:#6b7280;margin-top:24px;">If you didn't request a password reset, you can safely ignore this email.</p>
-    <p style="color:#6b7280;font-size:12px;margin-top:24px;">Shadeotech &bull; billing@shadeotech.com</p>
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;" />
+    <p style="color:#6b7280;font-size:12px;margin:0;">Shadeotech &bull; office@shadeotech.com</p>
   </div>
 </body>
 </html>`,
-    })
-  } catch (err) {
-    console.error('[forgot-password] Email failed:', err)
-  }
+  }).catch(err => console.error('[forgot-password] Email failed:', err))
 
   return NextResponse.json({ success: true })
 }

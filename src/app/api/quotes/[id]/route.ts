@@ -396,28 +396,27 @@ export async function PUT(
             ? new Date((quote as any).expiryDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
             : 'N/A'
 
-          await sendEmail({
+          const _appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://erpshadeotech.vercel.app'
+          sendEmail({
             to: customerEmail,
             subject: `Your Quote ${quoteNumber} from Shadeotech`,
-            html: `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#1f2937;max-width:600px;margin:0 auto;padding:24px;">
-<div style="background:#1e3a5f;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
-  <h1 style="color:#ffffff;margin:0;font-size:24px;">Shadeotech</h1>
-  <p style="color:#93c5fd;margin:8px 0 0;">Your Quote is Ready</p>
+            html: `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#1f2937;max-width:560px;margin:0 auto;padding:0;">
+<div style="background:linear-gradient(135deg,#111,#1a1a1a);padding:28px 24px;border-radius:12px 12px 0 0;text-align:center;">
+  <img src="${_appUrl}/images/logo.png" alt="Shadeotech" style="height:48px;object-fit:contain;margin-bottom:8px;" />
 </div>
-<div style="background:#f9fafb;padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;">
-  <p>Hi ${resolvedName},</p>
-  <p>Your updated quote is ready for review.</p>
+<div style="background:#f9fafb;padding:28px 24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;">
+  <p style="font-size:15px;">Hi ${resolvedName},</p>
+  <p>Your quote is ready for review. Log in to your portal to view, accept, or ask questions.</p>
   <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-    <tr style="background:#e5e7eb;"><th style="padding:8px 12px;text-align:left;">Quote #</th><td style="padding:8px 12px;">${quoteNumber}</td><th style="padding:8px 12px;text-align:left;">Expires</th><td style="padding:8px 12px;">${expiryStr}</td></tr>
+    <tr style="background:#f3f4f6;"><td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;font-size:13px;">Quote Number</td><td style="padding:8px 12px;border:1px solid #e5e7eb;font-weight:600;">${quoteNumber}</td></tr>
+    <tr><td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;font-size:13px;">Total</td><td style="padding:8px 12px;border:1px solid #e5e7eb;font-weight:700;color:#c8864e;">$${totalAmount}</td></tr>
+    <tr style="background:#f3f4f6;"><td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;font-size:13px;">Expires</td><td style="padding:8px 12px;border:1px solid #e5e7eb;">${expiryStr}</td></tr>
   </table>
-  <div style="text-align:right;margin-top:8px;">
-    <p style="font-size:18px;font-weight:bold;color:#1e3a5f;margin:8px 0;">Total: $${totalAmount}</p>
-  </div>
-  <p style="margin-top:24px;">To accept this quote or ask any questions, please log in to your customer portal or reply to this email.</p>
-  <p style="color:#6b7280;font-size:12px;margin-top:24px;">Shadeotech &bull; concierge@shadeotech.com</p>
+  <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;" />
+  <p style="color:#6b7280;font-size:12px;margin:0;">Shadeotech &bull; office@shadeotech.com</p>
 </div>
 </body></html>`,
-          })
+          }).catch(err => console.error('[quotes] Email failed:', err))
         }
       } catch (emailErr) {
         console.error('[quotes] Failed to send quote email on status update:', emailErr)

@@ -71,6 +71,8 @@ import { useInvoiceTemplateStore } from '@/stores/invoiceTemplateStore'
 import { sanitizePhoneInput, validatePhone } from '@/lib/phoneValidation'
 import { AddressAutocomplete, type AddressSelection } from '@/components/shared/AddressAutocomplete'
 import { QuoteOptionsSettings } from '@/components/settings/QuoteOptionsSettings'
+import { EmailTemplatesTab } from '@/components/settings/EmailTemplatesTab'
+import { WorkflowsTab } from '@/components/settings/WorkflowsTab'
 
 const mockProducts = [
   {
@@ -1493,6 +1495,8 @@ export default function SettingsPage() {
             <SelectItem value="quote-options">Estimate Options</SelectItem>
             <SelectItem value="booking">Booking Settings</SelectItem>
             <SelectItem value="ticket-subjects">Ticket Subjects</SelectItem>
+            <SelectItem value="email-templates">Email Templates</SelectItem>
+            <SelectItem value="workflows">Workflows</SelectItem>
           </SelectContent>
         </Select>
 
@@ -3182,6 +3186,16 @@ export default function SettingsPage() {
               </Button>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Email Templates Tab */}
+        <TabsContent value="email-templates" className="space-y-6">
+          <EmailTemplatesTab />
+        </TabsContent>
+
+        {/* Workflows Tab */}
+        <TabsContent value="workflows" className="space-y-6">
+          <WorkflowsTab />
         </TabsContent>
       </Tabs>
 
