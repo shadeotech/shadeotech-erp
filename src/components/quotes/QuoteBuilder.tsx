@@ -887,12 +887,17 @@ export function QuoteBuilder({ customerId, initialQuote, quoteId, customerLocked
   // Cascade options derived from fabric gallery
   const productOptions = useMemo(() => {
     const cats = Array.from(new Set(fabricGallery.map((f) => f.category))).sort()
-    // Group all "Exterior - ..." categories under a single "Exterior" option
     const hasExterior = cats.some((c) => c.startsWith('Exterior'))
     const filtered = cats.filter((c) => !c.startsWith('Exterior'))
     if (hasExterior) filtered.push('Exterior')
     return filtered.sort()
   }, [fabricGallery])
+
+  // Grouped version for the dropdown: Interior / Exterior
+  const groupedProductOptions = useMemo(() => ({
+    interior: productOptions.filter((p) => !p.startsWith('Exterior')),
+    exterior: productOptions.filter((p) => p.startsWith('Exterior')),
+  }), [productOptions])
 
   // Sub-types available when "Exterior" is selected
   const exteriorTypeOptions = useMemo(() => {
@@ -2060,7 +2065,27 @@ export function QuoteBuilder({ customerId, initialQuote, quoteId, customerLocked
         ) : (
           <Select value={newItem.category || undefined} onValueChange={(v) => setNewItem({ ...newItem, category: v, exteriorType: '', subcategory: '', subSubcategory: '', collectionId: '' as CollectionId | '', fabricId: '', fabricImage: '', productName: '', bottomRailSealType: v === 'Roller Shades' ? (newItem.bottomRailSealType || 'Brush S') : '' })}>
             <SelectTrigger className="h-7 text-xs w-full"><SelectValue placeholder="Product" /></SelectTrigger>
-            <SelectContent>{productOptions.map((opt) => (<SelectItem key={opt} value={opt}>{opt}</SelectItem>))}</SelectContent>
+            <SelectContent>
+              {groupedProductOptions.interior.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel className="text-[10px] px-2 py-1 text-amber-700 bg-amber-50">Interior</SelectLabel>
+                  {groupedProductOptions.interior.map((opt) => (
+                    <SelectItem key={opt} value={opt} className="pl-5">{opt}</SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
+              {groupedProductOptions.exterior.length > 0 && (
+                <>
+                  {groupedProductOptions.interior.length > 0 && <SelectSeparator />}
+                  <SelectGroup>
+                    <SelectLabel className="text-[10px] px-2 py-1 text-blue-700 bg-blue-50">Exterior</SelectLabel>
+                    {groupedProductOptions.exterior.map((opt) => (
+                      <SelectItem key={opt} value={opt} className="pl-5">{opt}</SelectItem>
+                    ))}
+                  </SelectGroup>
+                </>
+              )}
+            </SelectContent>
           </Select>
         )}
         {newItem.category === 'Exterior' && (

@@ -29,6 +29,7 @@ import {
   CheckSquare,
   TrendingUp,
   BarChart3,
+  Package,
   LogOut,
 } from 'lucide-react'
 
@@ -106,6 +107,7 @@ const navItems: NavItem[] = [
       { title: 'Schedule', href: '/production/schedule' },
       { title: 'Workshop', href: '/production/workshop' },
       { title: 'Inventory', href: '/production/inventory' },
+      { title: 'Products', href: '/production/products' },
       { title: 'Fabric Gallery', href: '/fabric-gallery' },
     ],
   },

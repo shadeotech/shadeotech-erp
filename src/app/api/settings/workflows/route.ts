@@ -94,3 +94,44 @@ export async function PUT(request: NextRequest) {
   if (!updated) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
   return NextResponse.json(updated)
 }
+
+export async function POST(request: NextRequest) {
+  const auth = await verifyAuth(request)
+  if (!auth || auth.role !== 'ADMIN') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  await connectDB()
+  const { key, name, trigger, emailEnabled, emailTemplateKey, smsEnabled, smsBody, enabled, delayMinutes } = await request.json()
+  if (!key?.trim() || !name?.trim()) {
+    return NextResponse.json({ error: 'key and name are required' }, { status: 400 })
+  }
+  const existing = await Workflow.findOne({ key: key.trim() })
+  if (existing) return NextResponse.json({ error: 'A workflow with this key already exists' }, { status: 409 })
+  const created = await Workflow.create({
+    key: key.trim(),
+    name: name.trim(),
+    trigger: trigger?.trim() || '',
+    emailEnabled: emailEnabled ?? false,
+    emailTemplateKey: emailTemplateKey?.trim() || '',
+    smsEnabled: smsEnabled ?? false,
+    smsBody: smsBody?.trim() || '',
+    enabled: enabled ?? true,
+    delayMinutes: delayMinutes ?? 0,
+  })
+  return NextResponse.json(created.toObject(), { status: 201 })
+}
+
+export async function DELETE(request: NextRequest) {
+  const auth = await verifyAuth(request)
+  if (!auth || auth.role !== 'ADMIN') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  await connectDB()
+  const { searchParams } = new URL(request.url)
+  const key = searchParams.get('key')
+  if (!key) return NextResponse.json({ error: 'key is required' }, { status: 400 })
+  const isDefault = DEFAULTS.some(d => d.key === key)
+  if (isDefault) return NextResponse.json({ error: 'Built-in workflows cannot be deleted' }, { status: 403 })
+  await Workflow.deleteOne({ key })
+  return NextResponse.json({ success: true })
+}

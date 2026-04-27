@@ -246,6 +246,7 @@ export function EmailTemplatesTab() {
                   <Switch
                     checked={t.enabled}
                     onCheckedChange={() => toggleEnabled(t)}
+                    className="data-[state=checked]:bg-amber-500"
                   />
                 </td>
                 <td className="px-4 py-3">
@@ -280,7 +281,7 @@ export function EmailTemplatesTab() {
 
           <div className="space-y-4 py-2">
             <div className="flex items-center gap-3">
-              <Switch checked={editEnabled} onCheckedChange={setEditEnabled} />
+              <Switch checked={editEnabled} onCheckedChange={setEditEnabled} className="data-[state=checked]:bg-amber-500" />
               <Label>Send this email</Label>
             </div>
 

@@ -392,18 +392,24 @@ export default function SettingsPage() {
   const [products, setProducts] = useState(mockProducts)
 
   // Product images state
-  const [productImages, setProductImages] = useState<Record<string, string>>({}) // collectionId → imageUrl
-  const [uploadingImage, setUploadingImage] = useState<string | null>(null) // collectionId being uploaded
+  type ProductImageEntry = { collectionId: string; name: string; imageUrl: string }
+  const [productImages, setProductImages] = useState<ProductImageEntry[]>([])
+  const [uploadingImage, setUploadingImage] = useState<string | null>(null)
   const [deletingImage, setDeletingImage] = useState<string | null>(null)
+  const [editingNameId, setEditingNameId] = useState<string | null>(null)
+  const [editNameVal, setEditNameVal] = useState('')
+  const [savingName, setSavingName] = useState(false)
+  const [addProductOpen, setAddProductOpen] = useState(false)
+  const [newProductName, setNewProductName] = useState('')
+  const [newProductId, setNewProductId] = useState('')
+  const [addingProduct, setAddingProduct] = useState(false)
 
   useEffect(() => {
     if (!token) return
     fetch('/api/settings/product-images', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : [])
       .then((list: any[]) => {
-        const map: Record<string, string> = {}
-        list.forEach(item => { map[item.collectionId] = item.imageUrl })
-        setProductImages(map)
+        setProductImages(list.map(item => ({ collectionId: item.collectionId, name: item.name, imageUrl: item.imageUrl || '' })))
       })
       .catch(() => {})
   }, [token])
@@ -426,7 +432,7 @@ export default function SettingsPage() {
         throw new Error(err.error || 'Upload failed')
       }
       const doc = await res.json()
-      setProductImages(prev => ({ ...prev, [collectionId]: doc.imageUrl }))
+      setProductImages(prev => prev.map(p => p.collectionId === collectionId ? { ...p, imageUrl: doc.imageUrl || '' } : p))
       toast({ title: 'Image uploaded', description: `${name} image saved.`, variant: 'success' })
     } catch (e: any) {
       toast({ title: 'Upload failed', description: e.message || 'Could not upload image.', variant: 'destructive' })
@@ -444,12 +450,61 @@ export default function SettingsPage() {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok) throw new Error()
-      setProductImages(prev => { const n = { ...prev }; delete n[collectionId]; return n })
-      toast({ title: 'Image removed' })
+      setProductImages(prev => prev.filter(p => p.collectionId !== collectionId))
+      toast({ title: 'Product removed' })
     } catch {
-      toast({ title: 'Error', description: 'Failed to remove image.', variant: 'destructive' })
+      toast({ title: 'Error', description: 'Failed to remove product.', variant: 'destructive' })
     } finally {
       setDeletingImage(null)
+    }
+  }
+
+  async function handleRenameProduct(collectionId: string) {
+    if (!token || !editNameVal.trim()) return
+    setSavingName(true)
+    try {
+      const res = await fetch('/api/settings/product-images', {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collectionId, name: editNameVal.trim() }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Rename failed')
+      }
+      setProductImages(prev => prev.map(p => p.collectionId === collectionId ? { ...p, name: editNameVal.trim() } : p))
+      setEditingNameId(null)
+      toast({ title: 'Name updated' })
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' })
+    } finally {
+      setSavingName(false)
+    }
+  }
+
+  async function handleAddProductImage() {
+    if (!token || !newProductName.trim() || !newProductId.trim()) return
+    setAddingProduct(true)
+    try {
+      const res = await fetch('/api/settings/product-images', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collectionId: newProductId.trim().toLowerCase().replace(/\s+/g, '_'), name: newProductName.trim() }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed to add product')
+      }
+      const doc = await res.json()
+      setProductImages(prev => [...prev, { collectionId: doc.collectionId, name: doc.name, imageUrl: doc.imageUrl || '' }])
+      setAddProductOpen(false)
+      setNewProductName('')
+      setNewProductId('')
+      toast({ title: 'Product added', description: `${doc.name} added. You can now upload an image.` })
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' })
+    } finally {
+      setAddingProduct(false)
     }
   }
   const [users, setUsers] = useState<UserData[]>([])
@@ -785,6 +840,7 @@ export default function SettingsPage() {
   const [contractDialogOpen, setContractDialogOpen] = useState(false)
   const [contractContents, setContractContents] = useState<Record<string, string>>(DEFAULT_CONTRACT_CONTENTS)
   const [editingContractContent, setEditingContractContent] = useState('')
+  const [contractImageUploading, setContractImageUploading] = useState(false)
   
   const [productForm, setProductForm] = useState({
     name: '',
@@ -1830,36 +1886,27 @@ export default function SettingsPage() {
                 Upload a photo for each product collection. Images appear in the customer portal and quote builder.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              <div className="flex justify-end">
+                <Button size="sm" onClick={() => { setNewProductName(''); setNewProductId(''); setAddProductOpen(true) }}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Product
+                </Button>
+              </div>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {[
-                  { id: 'duo_basic', name: 'Duo Basic' },
-                  { id: 'duo_light_filtering', name: 'Duo Light Filtering' },
-                  { id: 'duo_room_dimming', name: 'Duo Room Dimming' },
-                  { id: 'tri_light_filtering', name: 'Tri Light Filtering' },
-                  { id: 'tri_room_dimming', name: 'Tri Room Dimming' },
-                  { id: 'roller_room_darkening', name: 'Roller Room Darkening' },
-                  { id: 'roller_light_filtering', name: 'Roller Light Filtering' },
-                  { id: 'roller_room_darkening_y', name: 'Roller Room Darkening Y' },
-                  { id: 'roller_light_filtering_y', name: 'Roller Light Filtering Y' },
-                  { id: 'roller_sun_screen', name: 'Roller Sun Screen' },
-                  { id: 'room_darkening_sun_screen', name: 'Room Darkening Sun Screen' },
-                  { id: 'zip', name: 'ZIP' },
-                  { id: 'wire_guide', name: 'Wire Guide' },
-                  { id: 'uni_shades', name: 'Uni Shades' },
-                ].map((collection) => {
-                  const imgUrl = productImages[collection.id]
-                  const isUploading = uploadingImage === collection.id
-                  const isDeleting = deletingImage === collection.id
+                {productImages.map((product) => {
+                  const isUploading = uploadingImage === product.collectionId
+                  const isDeleting = deletingImage === product.collectionId
+                  const isEditingName = editingNameId === product.collectionId
                   return (
-                    <div key={collection.id} className="rounded-lg border overflow-hidden bg-card">
+                    <div key={product.collectionId} className="rounded-lg border overflow-hidden bg-card">
                       {/* Image area */}
                       <div className="relative aspect-[4/3] bg-muted flex items-center justify-center overflow-hidden">
-                        {imgUrl ? (
+                        {product.imageUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={imgUrl}
-                            alt={collection.name}
+                            src={product.imageUrl}
+                            alt={product.name}
                             className="w-full h-full object-cover"
                           />
                         ) : (
@@ -1874,7 +1921,36 @@ export default function SettingsPage() {
 
                       {/* Name + actions */}
                       <div className="px-3 py-2.5 space-y-2">
-                        <p className="text-sm font-medium truncate">{collection.name}</p>
+                        {isEditingName ? (
+                          <div className="flex items-center gap-1">
+                            <Input
+                              value={editNameVal}
+                              onChange={e => setEditNameVal(e.target.value)}
+                              className="h-7 text-xs px-2 flex-1"
+                              autoFocus
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') handleRenameProduct(product.collectionId)
+                                if (e.key === 'Escape') setEditingNameId(null)
+                              }}
+                            />
+                            <Button variant="ghost" size="sm" className="px-1.5 h-7" disabled={savingName} onClick={() => handleRenameProduct(product.collectionId)}>
+                              {savingName ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 text-green-600" />}
+                            </Button>
+                            <Button variant="ghost" size="sm" className="px-1.5 h-7" onClick={() => setEditingNameId(null)}>
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 group">
+                            <p className="text-sm font-medium truncate flex-1">{product.name}</p>
+                            <button
+                              className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent"
+                              onClick={() => { setEditingNameId(product.collectionId); setEditNameVal(product.name) }}
+                            >
+                              <Edit className="h-3 w-3 text-muted-foreground" />
+                            </button>
+                          </div>
+                        )}
                         <div className="flex gap-2">
                           <label className="flex-1 cursor-pointer">
                             <input
@@ -1884,32 +1960,71 @@ export default function SettingsPage() {
                               disabled={isUploading || isDeleting}
                               onChange={(e) => {
                                 const file = e.target.files?.[0]
-                                if (file) handleProductImageUpload(collection.id, collection.name, file)
+                                if (file) handleProductImageUpload(product.collectionId, product.name, file)
                                 e.target.value = ''
                               }}
                             />
                             <div className={`inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer ${isUploading || isDeleting ? 'opacity-50 pointer-events-none' : ''}`}>
                               <Upload className="h-3.5 w-3.5" />
-                              {imgUrl ? 'Replace' : 'Upload'}
+                              {product.imageUrl ? 'Replace' : 'Upload'}
                             </div>
                           </label>
-                          {imgUrl && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="px-2 text-muted-foreground hover:text-destructive"
-                              disabled={isUploading || isDeleting}
-                              onClick={() => handleProductImageDelete(collection.id)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="px-2 text-muted-foreground hover:text-destructive"
+                            disabled={isUploading || isDeleting}
+                            onClick={() => handleProductImageDelete(product.collectionId)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
                       </div>
                     </div>
                   )
                 })}
               </div>
+
+              {/* Add Product Dialog */}
+              <Dialog open={addProductOpen} onOpenChange={setAddProductOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add Product</DialogTitle>
+                    <DialogDescription>
+                      Create a new product entry. You can upload an image after adding it.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="space-y-1.5">
+                      <Label>Product Name</Label>
+                      <Input
+                        placeholder="e.g. Roller Blackout Premium"
+                        value={newProductName}
+                        onChange={e => {
+                          setNewProductName(e.target.value)
+                          if (!newProductId || newProductId === newProductName.toLowerCase().replace(/\s+/g, '_')) {
+                            setNewProductId(e.target.value.toLowerCase().replace(/\s+/g, '_'))
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Product ID <span className="text-xs text-muted-foreground">(unique, no spaces)</span></Label>
+                      <Input
+                        placeholder="e.g. roller_blackout_premium"
+                        value={newProductId}
+                        onChange={e => setNewProductId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setAddProductOpen(false)}>Cancel</Button>
+                    <Button disabled={addingProduct || !newProductName.trim() || !newProductId.trim()} onClick={handleAddProductImage}>
+                      {addingProduct ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Adding...</> : 'Add Product'}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </CardContent>
           </Card>
         </TabsContent>
@@ -3606,6 +3721,46 @@ export default function SettingsPage() {
                     Use <code className="rounded bg-muted px-1 text-xs">[CUSTOMER_NAME]</code> as a placeholder — it will be replaced when the agreement is sent.
                     {' '}Insert <code className="rounded bg-muted px-1 text-xs">[SECTION_BREAK]</code> on its own line to split the agreement into separate signing pages in the customer portal.
                   </p>
+                  <div className="flex items-center gap-2">
+                    <label className="cursor-pointer">
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        disabled={contractImageUploading}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file || !token) return
+                          setContractImageUploading(true)
+                          try {
+                            const fd = new FormData()
+                            fd.append('file', file)
+                            fd.append('folder', 'agreement-images')
+                            const res = await fetch('/api/settings/upload-image', {
+                              method: 'POST',
+                              headers: { Authorization: `Bearer ${token}` },
+                              body: fd,
+                            })
+                            if (!res.ok) throw new Error('Upload failed')
+                            const { url } = await res.json()
+                            const tag = `\n<img src="${url}" alt="image" style="max-width:100%;height:auto;" />\n`
+                            setEditingContractContent(prev => prev + tag)
+                            toast({ title: 'Image inserted', description: 'Image URL appended to the content.' })
+                          } catch {
+                            toast({ title: 'Upload failed', description: 'Could not upload image.', variant: 'destructive' })
+                          } finally {
+                            setContractImageUploading(false)
+                            e.target.value = ''
+                          }
+                        }}
+                      />
+                      <div className={`inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer ${contractImageUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                        {contractImageUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                        {contractImageUploading ? 'Uploading…' : 'Insert Image'}
+                      </div>
+                    </label>
+                    <p className="text-xs text-muted-foreground">Uploads image and appends an HTML img tag at the end of the content.</p>
+                  </div>
                   <Textarea
                     rows={28}
                     className="font-mono text-xs leading-relaxed"

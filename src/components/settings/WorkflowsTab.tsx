@@ -15,7 +15,8 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/components/ui/use-toast'
-import { Edit, Loader2, Zap, Mail, MessageSquare } from 'lucide-react'
+import { Edit, Loader2, Zap, Mail, MessageSquare, Plus, Trash2 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/stores/authStore'
 
 interface Workflow {
@@ -31,6 +32,8 @@ interface Workflow {
   delayMinutes: number
 }
 
+const BUILT_IN_KEYS = ['portal_invite', 'forgot_password', 'quote_sent', 'invoice_sent', 'staff_reset']
+
 export function WorkflowsTab() {
   const { token } = useAuthStore()
   const { toast } = useToast()
@@ -43,6 +46,11 @@ export function WorkflowsTab() {
   const [editSmsBody, setEditSmsBody] = useState('')
   const [editEnabled, setEditEnabled] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newKey, setNewKey] = useState('')
+  const [newTrigger, setNewTrigger] = useState('')
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     if (!token) return
@@ -94,6 +102,59 @@ export function WorkflowsTab() {
     }
   }
 
+  async function handleCreate() {
+    if (!token || !newName.trim() || !newKey.trim()) return
+    setCreating(true)
+    try {
+      const res = await fetch('/api/settings/workflows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          key: newKey.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''),
+          name: newName.trim(),
+          trigger: newTrigger.trim(),
+          emailEnabled: false,
+          smsEnabled: false,
+          smsBody: '',
+          enabled: true,
+          delayMinutes: 0,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed to create workflow')
+      }
+      const created = await res.json()
+      setWorkflows(prev => [...prev, created])
+      setCreateOpen(false)
+      setNewName(''); setNewKey(''); setNewTrigger('')
+      toast({ title: 'Workflow created', description: `"${created.name}" added. Click Configure to set it up.` })
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' })
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function handleDelete(w: Workflow) {
+    if (!token) return
+    if (!confirm(`Delete workflow "${w.name}"? This cannot be undone.`)) return
+    try {
+      const res = await fetch(`/api/settings/workflows?key=${w.key}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed to delete')
+      }
+      setWorkflows(prev => prev.filter(x => x.key !== w.key))
+      toast({ title: 'Deleted', description: `Workflow "${w.name}" removed.` })
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' })
+    }
+  }
+
   async function toggleWorkflow(w: Workflow) {
     if (!token) return
     const updated = { ...w, enabled: !w.enabled }
@@ -125,11 +186,17 @@ export function WorkflowsTab() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h3 className="text-base font-semibold">Workflows</h3>
-        <p className="text-sm text-muted-foreground mt-1">
-          Control when emails and SMS messages are automatically sent. Edit each workflow to configure delivery.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-base font-semibold">Workflows</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Control when emails and SMS messages are automatically sent. Edit each workflow to configure delivery.
+          </p>
+        </div>
+        <Button size="sm" onClick={() => { setNewName(''); setNewKey(''); setNewTrigger(''); setCreateOpen(true) }}>
+          <Plus className="h-4 w-4 mr-1" />
+          Add New
+        </Button>
       </div>
 
       <div className="rounded-lg border overflow-hidden">
@@ -185,16 +252,67 @@ export function WorkflowsTab() {
                   />
                 </td>
                 <td className="px-4 py-3">
-                  <Button variant="outline" size="sm" onClick={() => openEdit(w)}>
-                    <Edit className="h-4 w-4 mr-1" />
-                    Configure
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => openEdit(w)}>
+                      <Edit className="h-4 w-4 mr-1" />
+                      Configure
+                    </Button>
+                    {!BUILT_IN_KEYS.includes(w.key) && (
+                      <Button variant="ghost" size="sm" className="px-2 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(w)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* Create Workflow Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>New Workflow</DialogTitle>
+            <DialogDescription>Create a custom workflow. After creating, click Configure to set up email and SMS delivery.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Workflow Name <span className="text-red-500">*</span></Label>
+              <Input
+                value={newName}
+                onChange={e => { setNewName(e.target.value); if (!newKey || newKey === newName.toLowerCase().replace(/\s+/g, '_')) setNewKey(e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')) }}
+                placeholder="e.g. Follow-up Reminder"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Key (unique ID) <span className="text-red-500">*</span></Label>
+              <Input
+                value={newKey}
+                onChange={e => setNewKey(e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''))}
+                placeholder="e.g. followup_reminder"
+              />
+              <p className="text-[11px] text-muted-foreground">Lowercase letters, numbers, underscores only.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Trigger Description</Label>
+              <Input
+                value={newTrigger}
+                onChange={e => setNewTrigger(e.target.value)}
+                placeholder="e.g. 3 days after quote is sent"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button disabled={creating || !newName.trim() || !newKey.trim()} onClick={handleCreate}>
+              {creating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Create Workflow
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>

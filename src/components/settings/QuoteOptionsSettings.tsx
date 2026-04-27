@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, Trash2, RotateCcw, ChevronDown, Pencil, Check, X } from 'lucide-react'
+import { Plus, Trash2, RotateCcw, ChevronDown, Pencil, Check, X, ArrowUp, ArrowDown } from 'lucide-react'
 
 // ── Compact dropdown option manager ─────────────────────────────────────────
 function OptionManager({
@@ -53,25 +53,41 @@ function OptionManager({
             <ChevronDown className="h-3.5 w-3.5 ml-2 shrink-0 text-muted-foreground" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-72 p-3 space-y-2" align="start">
+        <PopoverContent className="w-80 p-3 space-y-2" align="start">
           <p className="text-xs font-semibold mb-1">{label}</p>
-          <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
-            {items.map((item) => (
-              <span
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            {items.map((item, idx) => (
+              <div
                 key={item}
-                className="inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium bg-background"
+                className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs bg-background group"
               >
-                {item}
+                <div className="flex flex-col gap-0.5 shrink-0">
+                  <button
+                    disabled={idx === 0}
+                    onClick={() => { const a = [...items]; [a[idx - 1], a[idx]] = [a[idx], a[idx - 1]]; onChange(a) }}
+                    className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed leading-none"
+                  >
+                    <ArrowUp className="h-2.5 w-2.5" />
+                  </button>
+                  <button
+                    disabled={idx === items.length - 1}
+                    onClick={() => { const a = [...items]; [a[idx], a[idx + 1]] = [a[idx + 1], a[idx]]; onChange(a) }}
+                    className="text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed leading-none"
+                  >
+                    <ArrowDown className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+                <span className="flex-1 font-medium truncate">{item}</span>
                 <button
                   onClick={() => onChange(items.filter((i) => i !== item))}
-                  className="ml-0.5 text-muted-foreground hover:text-destructive transition-colors"
+                  className="text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 shrink-0"
                 >
-                  ×
+                  <X className="h-3 w-3" />
                 </button>
-              </span>
+              </div>
             ))}
             {items.length === 0 && (
-              <p className="text-xs text-muted-foreground italic">No options yet</p>
+              <p className="text-xs text-muted-foreground italic py-1">No options yet</p>
             )}
           </div>
           <div className="flex gap-2 pt-1 border-t">
