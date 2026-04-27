@@ -1483,7 +1483,6 @@ export default function SettingsPage() {
             <SelectItem value="pricing">Pricing</SelectItem>
             <SelectItem value="production-sheets">Production Sheets</SelectItem>
             <SelectItem value="add-ons">Add ons</SelectItem>
-            <SelectItem value="products">Products</SelectItem>
             <SelectItem value="product-images">Product Images</SelectItem>
             <SelectItem value="users">Users</SelectItem>
             <SelectItem value="invoice-style">Invoice Style</SelectItem>
@@ -1760,143 +1759,6 @@ export default function SettingsPage() {
         </TabsContent>
 
         {/* Products Tab */}
-        <TabsContent value="products" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Products</CardTitle>
-                  <CardDescription>
-                    Manage product catalog and configurations
-                  </CardDescription>
-                </div>
-                <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Product
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Add New Product</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div>
-                        <Label>Product Name</Label>
-                        <Input
-                          value={productForm.name}
-                          onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
-                          placeholder="e.g., Roller Shades"
-                        />
-                      </div>
-                      <div>
-                        <Label>Category</Label>
-                        <Input
-                          value={productForm.category}
-                          onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}
-                          placeholder="e.g., roller_shades"
-                        />
-                      </div>
-                      <div>
-                        <Label>Description</Label>
-                        <Textarea
-                          value={productForm.description}
-                          onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
-                          rows={3}
-                          placeholder="Product description"
-                        />
-                      </div>
-                      <div>
-                        <Label>Base Price per m²</Label>
-                        <Input
-                          type="number"
-                          value={productForm.basePrice}
-                          onChange={(e) => setProductForm({ ...productForm, basePrice: e.target.value })}
-                          placeholder="0.00"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <Label>Minimum Size</Label>
-                          <Input
-                            type="number"
-                            inputMode="decimal"
-                            value={productForm.minSize}
-                            onChange={(e) => setProductForm({ ...productForm, minSize: e.target.value })}
-                            placeholder="e.g. 0"
-                            required
-                          />
-                        </div>
-                        <div>
-                          <Label>Maximum Size</Label>
-                          <Input
-                            type="number"
-                            inputMode="decimal"
-                            value={productForm.maxSize}
-                            onChange={(e) => setProductForm({ ...productForm, maxSize: e.target.value })}
-                            placeholder="e.g. 100"
-                            required
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setProductDialogOpen(false)}>Cancel</Button>
-                      <Button onClick={handleAddProduct}>Add Product</Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-lg border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Product Name</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Base Price</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {products.map((product) => (
-                      <TableRow key={product.id}>
-                        <TableCell className="font-medium">{product.name}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="bg-gray-500/10 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-0">
-                            {product.category}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">{product.description}</TableCell>
-                        <TableCell>{formatCurrency(product.basePrice)}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={product.isActive ? 'bg-green-500/10 dark:bg-green-900/30 text-green-600 dark:text-green-400 border-0' : 'bg-gray-500/10 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-0'}>
-                            {product.isActive ? 'Active' : 'Inactive'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Button variant="ghost" size="sm">
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="sm">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         {/* Product Images Tab */}
         <TabsContent value="product-images" className="space-y-6">
           <Card>
@@ -3161,14 +3023,14 @@ export default function SettingsPage() {
                   Add
                 </Button>
               </div>
-              <div className="space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 {ticketSubjects.map((subject, idx) => (
                   <div key={idx} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-                    <span>{subject}</span>
+                    <span className="truncate mr-2">{subject}</span>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
                       onClick={() => setTicketSubjects(ticketSubjects.filter((_, i) => i !== idx))}
                     >
                       <X className="h-4 w-4" />

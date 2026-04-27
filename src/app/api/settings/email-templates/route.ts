@@ -108,3 +108,34 @@ export async function PUT(request: NextRequest) {
   if (!updated) return NextResponse.json({ error: 'Template not found' }, { status: 404 })
   return NextResponse.json(updated)
 }
+
+export async function POST(request: NextRequest) {
+  const auth = await verifyAuth(request)
+  if (!auth || auth.role !== 'ADMIN') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  await connectDB()
+  const { key, name, subject, body, variables, enabled } = await request.json()
+  if (!key || !name || !subject) {
+    return NextResponse.json({ error: 'key, name, and subject are required' }, { status: 400 })
+  }
+  const existing = await EmailTemplate.findOne({ key }).lean()
+  if (existing) return NextResponse.json({ error: 'A template with this key already exists' }, { status: 409 })
+  const created = await EmailTemplate.create({ key, name, subject, body: body || '', variables: variables || [], enabled: enabled ?? true })
+  return NextResponse.json(created.toObject(), { status: 201 })
+}
+
+export async function DELETE(request: NextRequest) {
+  const auth = await verifyAuth(request)
+  if (!auth || auth.role !== 'ADMIN') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  await connectDB()
+  const { searchParams } = new URL(request.url)
+  const key = searchParams.get('key')
+  if (!key) return NextResponse.json({ error: 'key is required' }, { status: 400 })
+  const isDefault = DEFAULTS.some(d => d.key === key)
+  if (isDefault) return NextResponse.json({ error: 'Built-in templates cannot be deleted' }, { status: 403 })
+  await EmailTemplate.deleteOne({ key })
+  return NextResponse.json({ success: true })
+}

@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { useToast } from '@/components/ui/use-toast'
-import { Edit, Loader2, Mail, Eye } from 'lucide-react'
+import { Edit, Loader2, Mail, Eye, Plus, Trash2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 
 interface EmailTemplate {
@@ -55,11 +55,17 @@ export function EmailTemplatesTab() {
   const [loading, setLoading] = useState(true)
   const [editOpen, setEditOpen] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
   const [selected, setSelected] = useState<EmailTemplate | null>(null)
   const [editSubject, setEditSubject] = useState('')
   const [editBody, setEditBody] = useState('')
   const [editEnabled, setEditEnabled] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newKey, setNewKey] = useState('')
+  const [newSubject, setNewSubject] = useState('')
+  const [newBody, setNewBody] = useState('')
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     if (!token) return
@@ -113,6 +119,57 @@ export function EmailTemplatesTab() {
     }
   }
 
+  async function handleCreate() {
+    if (!token || !newName.trim() || !newKey.trim() || !newSubject.trim()) {
+      toast({ title: 'Error', description: 'Name, Key, and Subject are required.', variant: 'destructive' })
+      return
+    }
+    setCreating(true)
+    try {
+      const res = await fetch('/api/settings/email-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          key: newKey.toLowerCase().replace(/\s+/g, '_'),
+          name: newName,
+          subject: newSubject,
+          body: newBody || '<p>Enter your email content here.</p>',
+          variables: [],
+          enabled: true,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed to create template')
+      }
+      const created = await res.json()
+      setTemplates(prev => [...prev, created])
+      setCreateOpen(false)
+      setNewName(''); setNewKey(''); setNewSubject(''); setNewBody('')
+      toast({ title: 'Created', description: 'New email template created.' })
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message || 'Failed to create template.', variant: 'destructive' })
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function handleDelete(t: EmailTemplate) {
+    if (!token) return
+    if (!confirm(`Delete template "${t.name}"? This cannot be undone.`)) return
+    try {
+      const res = await fetch(`/api/settings/email-templates?key=${t.key}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error()
+      setTemplates(prev => prev.filter(x => x.key !== t.key))
+      toast({ title: 'Deleted', description: `Template "${t.name}" removed.` })
+    } catch {
+      toast({ title: 'Error', description: 'Failed to delete template.', variant: 'destructive' })
+    }
+  }
+
   async function toggleEnabled(t: EmailTemplate) {
     if (!token) return
     const updated = { ...t, enabled: !t.enabled }
@@ -137,11 +194,17 @@ export function EmailTemplatesTab() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h3 className="text-base font-semibold">Email Templates</h3>
-        <p className="text-sm text-muted-foreground mt-1">
-          Edit the content and subject of every outgoing email. All emails include your logo automatically.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-base font-semibold">Email Templates</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            Edit the content and subject of every outgoing email. All emails include your logo automatically.
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
+          <Plus className="h-4 w-4 mr-1" />
+          New Template
+        </Button>
       </div>
 
       <div className="rounded-lg border overflow-hidden">
@@ -193,6 +256,9 @@ export function EmailTemplatesTab() {
                     <Button variant="outline" size="sm" onClick={() => openEdit(t)}>
                       <Edit className="h-4 w-4 mr-1" />
                       Edit
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" onClick={() => handleDelete(t)}>
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </td>
@@ -253,6 +319,54 @@ export function EmailTemplatesTab() {
             <Button onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Save Template
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Template Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>New Email Template</DialogTitle>
+            <DialogDescription>Create a custom email template you can trigger from workflows or manually.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Template Name <span className="text-red-500">*</span></Label>
+                <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Follow-up Email" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Key (unique ID) <span className="text-red-500">*</span></Label>
+                <Input
+                  value={newKey}
+                  onChange={e => setNewKey(e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''))}
+                  placeholder="e.g. follow_up"
+                />
+                <p className="text-[11px] text-muted-foreground">Lowercase letters, numbers, underscores only.</p>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Subject <span className="text-red-500">*</span></Label>
+              <Input value={newSubject} onChange={e => setNewSubject(e.target.value)} placeholder="Email subject line" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Body (HTML)</Label>
+              <Textarea
+                value={newBody}
+                onChange={e => setNewBody(e.target.value)}
+                rows={10}
+                className="font-mono text-xs"
+                placeholder="<p>Hi {{customerName}},</p>&#10;<p>Your message here...</p>"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={creating}>
+              {creating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Create Template
             </Button>
           </DialogFooter>
         </DialogContent>
