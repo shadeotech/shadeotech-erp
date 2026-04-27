@@ -29,7 +29,7 @@ const COLLECTIONS: { id: CollectionId; name: string }[] = [
   { id: 'roller_light_filtering_y', name: 'Roller Light Filtering Y Collection' },
   { id: 'roller_sun_screen', name: 'Roller Sun Screen' },
   { id: 'room_darkening_sun_screen', name: 'Room Darkening Sun Screen' },
-  { id: 'zip', name: 'ZIP' },
+  { id: 'zip', name: 'Zip, Zip-track Full Box' },
   { id: 'wire_guide', name: 'Wire Guide' },
   { id: 'uni_shades', name: 'Uni Shades' },
 ]

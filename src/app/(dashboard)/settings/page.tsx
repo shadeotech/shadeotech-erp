@@ -390,6 +390,68 @@ export default function SettingsPage() {
   const { token } = useAuthStore()
   const { toast } = useToast()
   const [products, setProducts] = useState(mockProducts)
+
+  // Product images state
+  const [productImages, setProductImages] = useState<Record<string, string>>({}) // collectionId → imageUrl
+  const [uploadingImage, setUploadingImage] = useState<string | null>(null) // collectionId being uploaded
+  const [deletingImage, setDeletingImage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!token) return
+    fetch('/api/settings/product-images', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then((list: any[]) => {
+        const map: Record<string, string> = {}
+        list.forEach(item => { map[item.collectionId] = item.imageUrl })
+        setProductImages(map)
+      })
+      .catch(() => {})
+  }, [token])
+
+  async function handleProductImageUpload(collectionId: string, name: string, file: File) {
+    if (!token) return
+    setUploadingImage(collectionId)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('collectionId', collectionId)
+      fd.append('name', name)
+      const res = await fetch('/api/settings/product-images', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Upload failed')
+      }
+      const doc = await res.json()
+      setProductImages(prev => ({ ...prev, [collectionId]: doc.imageUrl }))
+      toast({ title: 'Image uploaded', description: `${name} image saved.`, variant: 'success' })
+    } catch (e: any) {
+      toast({ title: 'Upload failed', description: e.message || 'Could not upload image.', variant: 'destructive' })
+    } finally {
+      setUploadingImage(null)
+    }
+  }
+
+  async function handleProductImageDelete(collectionId: string) {
+    if (!token) return
+    setDeletingImage(collectionId)
+    try {
+      const res = await fetch(`/api/settings/product-images?collectionId=${collectionId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error()
+      setProductImages(prev => { const n = { ...prev }; delete n[collectionId]; return n })
+      toast({ title: 'Image removed' })
+    } catch {
+      toast({ title: 'Error', description: 'Failed to remove image.', variant: 'destructive' })
+    } finally {
+      setDeletingImage(null)
+    }
+  }
   const [users, setUsers] = useState<UserData[]>([])
   const [pendingUsers, setPendingUsers] = useState<UserData[]>([])
   const [usersLoading, setUsersLoading] = useState(true)
@@ -1765,30 +1827,88 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle>Product Images</CardTitle>
               <CardDescription>
-                Upload and manage product images for catalog display
+                Upload a photo for each product collection. Images appear in the customer portal and quote builder.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4 md:grid-cols-3">
-                {products.map((product) => (
-                  <Card key={product.id}>
-                    <CardContent className="pt-6">
-                      <div className="space-y-4">
-                        <div className="aspect-square bg-gray-100 rounded-lg flex items-center justify-center">
-                          <ImageIcon className="h-12 w-12 text-gray-400" />
-                        </div>
-                        <div>
-                          <p className="font-medium">{product.name}</p>
-                          <p className="text-sm text-muted-foreground">{product.category}</p>
-                        </div>
-                        <Button variant="outline" className="w-full">
-                          <Upload className="mr-2 h-4 w-4" />
-                          Upload Image
-                        </Button>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {[
+                  { id: 'duo_basic', name: 'Duo Basic' },
+                  { id: 'duo_light_filtering', name: 'Duo Light Filtering' },
+                  { id: 'duo_room_dimming', name: 'Duo Room Dimming' },
+                  { id: 'tri_light_filtering', name: 'Tri Light Filtering' },
+                  { id: 'tri_room_dimming', name: 'Tri Room Dimming' },
+                  { id: 'roller_room_darkening', name: 'Roller Room Darkening' },
+                  { id: 'roller_light_filtering', name: 'Roller Light Filtering' },
+                  { id: 'roller_room_darkening_y', name: 'Roller Room Darkening Y' },
+                  { id: 'roller_light_filtering_y', name: 'Roller Light Filtering Y' },
+                  { id: 'roller_sun_screen', name: 'Roller Sun Screen' },
+                  { id: 'room_darkening_sun_screen', name: 'Room Darkening Sun Screen' },
+                  { id: 'zip', name: 'ZIP' },
+                  { id: 'wire_guide', name: 'Wire Guide' },
+                  { id: 'uni_shades', name: 'Uni Shades' },
+                ].map((collection) => {
+                  const imgUrl = productImages[collection.id]
+                  const isUploading = uploadingImage === collection.id
+                  const isDeleting = deletingImage === collection.id
+                  return (
+                    <div key={collection.id} className="rounded-lg border overflow-hidden bg-card">
+                      {/* Image area */}
+                      <div className="relative aspect-[4/3] bg-muted flex items-center justify-center overflow-hidden">
+                        {imgUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={imgUrl}
+                            alt={collection.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <ImageIcon className="h-10 w-10 text-muted-foreground/40" />
+                        )}
+                        {(isUploading || isDeleting) && (
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                            <Loader2 className="h-6 w-6 animate-spin text-white" />
+                          </div>
+                        )}
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
+
+                      {/* Name + actions */}
+                      <div className="px-3 py-2.5 space-y-2">
+                        <p className="text-sm font-medium truncate">{collection.name}</p>
+                        <div className="flex gap-2">
+                          <label className="flex-1 cursor-pointer">
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              disabled={isUploading || isDeleting}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (file) handleProductImageUpload(collection.id, collection.name, file)
+                                e.target.value = ''
+                              }}
+                            />
+                            <div className={`inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer ${isUploading || isDeleting ? 'opacity-50 pointer-events-none' : ''}`}>
+                              <Upload className="h-3.5 w-3.5" />
+                              {imgUrl ? 'Replace' : 'Upload'}
+                            </div>
+                          </label>
+                          {imgUrl && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="px-2 text-muted-foreground hover:text-destructive"
+                              disabled={isUploading || isDeleting}
+                              onClick={() => handleProductImageDelete(collection.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </CardContent>
           </Card>
