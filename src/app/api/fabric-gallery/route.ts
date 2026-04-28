@@ -5,6 +5,7 @@ import { verifyAuth } from '@/lib/auth'
 import { initialFabricData } from '@/constants/fabrics'
 
 function toApi(doc: any) {
+  const stockStatus = doc.stockStatus ?? (doc.inStock === false ? 'back_order' : 'in_stock')
   return {
     id: doc._id.toString(),
     category: doc.category ?? '',
@@ -23,6 +24,10 @@ function toApi(doc: any) {
     maxWidth: doc.maxWidth,
     rollLength: doc.rollLength,
     fabricWidth: doc.fabricWidth ?? null,
+    stockStatus,
+    expectedArrival: doc.expectedArrival ?? null,
+    inStock: stockStatus === 'in_stock',
+    rollsAvailable: doc.rollsAvailable ?? 0,
   }
 }
 
@@ -63,9 +68,19 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    let items = await FabricGallery.find({}).sort({ createdAt: 1 }).lean()
+    const filterQuery: Record<string, string> = {}
+    const catParam = request.nextUrl.searchParams.get('category')
+    const subParam = request.nextUrl.searchParams.get('subcategory')
+    const colParam = request.nextUrl.searchParams.get('collection')
+    if (catParam) filterQuery.category = catParam
+    if (subParam) filterQuery.subcategory = subParam
+    if (colParam !== null) filterQuery.collection = colParam
 
-    if (items.length === 0) {
+    const isFiltered = catParam || subParam || colParam !== null
+
+    let items = await FabricGallery.find(isFiltered ? filterQuery : {}).sort({ createdAt: 1 }).lean()
+
+    if (!isFiltered && items.length === 0) {
       await FabricGallery.insertMany(initialFabricData.map(toSeedDoc))
       items = await FabricGallery.find({}).sort({ createdAt: 1 }).lean()
     }
@@ -103,6 +118,8 @@ export async function POST(request: NextRequest) {
       maxWidth,
       rollLength,
       fabricWidth,
+      stockStatus,
+      expectedArrival,
     } = body
 
     if (!category || !subcategory || !color) {
@@ -129,6 +146,10 @@ export async function POST(request: NextRequest) {
       maxWidth: maxWidth ? String(maxWidth).trim() : undefined,
       rollLength: rollLength ? String(rollLength).trim() : undefined,
       fabricWidth: fabricWidth !== undefined && fabricWidth !== null && fabricWidth !== '' ? Number(fabricWidth) : undefined,
+      stockStatus: stockStatus || 'in_stock',
+      expectedArrival: stockStatus === 'back_order' && expectedArrival ? String(expectedArrival).trim() : undefined,
+      inStock: !stockStatus || stockStatus === 'in_stock',
+      rollsAvailable: body.rollsAvailable !== undefined ? Number(body.rollsAvailable) || 0 : 0,
     })
 
     return NextResponse.json({ fabric: toApi(doc.toObject()) }, { status: 201 })

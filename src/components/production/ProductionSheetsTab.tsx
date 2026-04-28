@@ -120,11 +120,16 @@ export default function ProductionSheetsTab({ order, quoteData }: Props) {
       groupMap[gKey].items.push(item)
     }
 
-    // Build rows for each group (one row per item, serial = position in group)
+    // Build rows: expand qty > 1 into duplicate rows each with qty = 1
     for (const g of Object.values(groupMap)) {
       let ser = 1
       for (const item of g.items) {
-        g.rows.push(itemToRow(item, ser++))
+        const qty = item.qty || 1
+        for (let q = 0; q < qty; q++) {
+          const row = itemToRow(item, ser++)
+          row.qty = 1
+          g.rows.push(row)
+        }
       }
     }
 

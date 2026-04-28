@@ -40,6 +40,7 @@ export interface EmailAttachment {
 
 export interface EmailOptions {
   to: string
+  cc?: string[]
   subject: string
   html: string
   text?: string
@@ -69,6 +70,9 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
       toRecipients: [
         { emailAddress: { address: options.to } },
       ],
+      ...(options.cc?.length ? {
+        ccRecipients: options.cc.map(addr => ({ emailAddress: { address: addr } })),
+      } : {}),
       ...(options.attachments?.length ? {
         attachments: options.attachments.map((a) => ({
           '@odata.type': '#microsoft.graph.fileAttachment',

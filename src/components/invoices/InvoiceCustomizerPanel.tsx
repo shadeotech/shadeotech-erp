@@ -62,34 +62,142 @@ function Section({
   )
 }
 
-// Only Estimate Style template is available
-const TEMPLATES: { id: InvoiceTemplate; name: string; thumb: React.ReactNode }[] = [
+const TEMPLATES: { id: InvoiceTemplate; name: string; desc: string; thumb: React.ReactNode }[] = [
+  {
+    id: 'modern',
+    name: 'Modern',
+    desc: 'Dark header band, bold layout',
+    thumb: (
+      <div className="h-20 w-full bg-white border rounded overflow-hidden">
+        {/* dark header */}
+        <div className="h-5 bg-slate-900 flex items-center px-2 justify-between">
+          <div className="h-2 w-8 bg-white/80 rounded-sm" />
+          <div className="h-2 w-6 bg-white/30 rounded-sm" />
+        </div>
+        <div className="p-1.5 space-y-0.5">
+          <div className="flex gap-1 mb-1">
+            <div className="flex-1 space-y-0.5">
+              <div className="h-1 w-8 bg-slate-300 rounded-sm" />
+              <div className="h-1 w-12 bg-slate-200 rounded-sm" />
+            </div>
+            <div className="space-y-0.5 text-right">
+              <div className="h-1 w-6 bg-slate-200 rounded-sm ml-auto" />
+              <div className="h-1 w-8 bg-slate-100 rounded-sm ml-auto" />
+            </div>
+          </div>
+          <div className="h-px bg-slate-200" />
+          {[70, 50, 60].map((w, i) => (
+            <div key={i} className="flex gap-1">
+              <div className="h-1 rounded-sm bg-slate-200" style={{ width: `${w}%` }} />
+              <div className="h-1 w-6 rounded-sm bg-slate-100 ml-auto" />
+            </div>
+          ))}
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: 'classic',
+    name: 'Classic',
+    desc: 'Bordered, structured layout',
+    thumb: (
+      <div className="h-20 w-full bg-white border-2 border-slate-400 rounded overflow-hidden">
+        {/* colored top bar */}
+        <div className="h-5 bg-slate-700 flex items-center px-2 justify-between">
+          <div className="h-2 w-8 bg-white/80 rounded-sm" />
+          <div className="h-2.5 w-7 bg-slate-400 rounded-sm" />
+        </div>
+        <div className="p-1.5 space-y-0.5">
+          <div className="flex gap-3 mb-1">
+            <div className="space-y-0.5 flex-1">
+              <div className="h-1 w-6 bg-slate-400 rounded-sm" />
+              <div className="h-1 w-10 bg-slate-200 rounded-sm" />
+              <div className="h-1 w-8 bg-slate-200 rounded-sm" />
+            </div>
+            <div className="space-y-0.5">
+              <div className="h-1 w-8 bg-slate-300 rounded-sm" />
+              <div className="h-1 w-6 bg-slate-200 rounded-sm" />
+            </div>
+          </div>
+          <div className="h-1.5 bg-slate-700 rounded-sm flex items-center px-1 gap-1">
+            {[30, 40, 15, 15].map((w, i) => (
+              <div key={i} className="h-0.5 rounded-sm bg-white/50" style={{ width: `${w}%` }} />
+            ))}
+          </div>
+          {[55, 45].map((w, i) => (
+            <div key={i} className="flex gap-1">
+              <div className="h-1 rounded-sm bg-slate-100" style={{ width: `${w}%` }} />
+              <div className="h-1 w-5 rounded-sm bg-slate-100 ml-auto" />
+            </div>
+          ))}
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: 'minimal',
+    name: 'Minimal',
+    desc: 'Clean, no-frills style',
+    thumb: (
+      <div className="h-20 w-full bg-white border border-slate-200 rounded p-1.5">
+        <div className="flex justify-between items-start mb-1.5">
+          <div className="space-y-0.5">
+            <div className="h-2 w-10 bg-slate-800 rounded-sm" />
+            <div className="h-1 w-14 bg-slate-200 rounded-sm" />
+          </div>
+          <div className="space-y-0.5 text-right">
+            <div className="h-2 w-8 bg-slate-700 rounded-sm" />
+            <div className="h-1 w-10 bg-slate-200 rounded-sm" />
+          </div>
+        </div>
+        <div className="h-px bg-slate-200 mb-1" />
+        <div className="space-y-0.5">
+          {[65, 55, 70].map((w, i) => (
+            <div key={i} className="flex gap-1">
+              <div className="h-1 rounded-sm bg-slate-100" style={{ width: `${w}%` }} />
+              <div className="h-1 w-5 rounded-sm bg-slate-100 ml-auto" />
+            </div>
+          ))}
+        </div>
+        <div className="mt-1 border-t border-slate-200 pt-0.5 flex justify-end">
+          <div className="h-1 w-10 bg-slate-300 rounded-sm" />
+        </div>
+      </div>
+    ),
+  },
   {
     id: 'estimate-style',
-    name: 'Estimate Style',
+    name: 'Estimate',
+    desc: 'Amber accent, signature style',
     thumb: (
-      <div className="h-14 w-full bg-white border rounded p-1.5">
-        <div className="flex justify-between items-start mb-1">
+      <div className="h-20 w-full bg-white border rounded overflow-hidden">
+        <div className="flex justify-between items-start p-1.5 mb-0.5">
           <div className="space-y-0.5">
-            <div className="h-2 w-10 bg-gray-800 rounded-sm font-bold" />
+            <div className="h-2 w-10 bg-gray-800 rounded-sm" />
             <div className="h-1 w-14 bg-gray-200 rounded-sm" />
           </div>
-          <div className="h-4 w-4 bg-amber-400 rounded-sm" />
-          <div className="space-y-0.5">
-            <div className="h-1 w-8 bg-gray-200 rounded-sm" />
-            <div className="h-1 w-6 bg-gray-100 rounded-sm" />
+          <div className="flex items-center gap-1">
+            <div className="h-3.5 w-3.5 bg-amber-400 rounded-sm" />
+            <div className="space-y-0.5">
+              <div className="h-1 w-8 bg-gray-200 rounded-sm" />
+              <div className="h-1 w-6 bg-gray-100 rounded-sm" />
+            </div>
           </div>
         </div>
-        <div className="border-t-2 border-gray-800 pt-0.5 flex gap-0.5">
-          {[2, 8, 3, 3].map((w, i) => (
-            <div key={i} className="h-1 rounded-sm bg-gray-700" style={{ width: `${w * 6}%` }} />
+        <div className="h-2 bg-gray-800 flex items-center px-1.5 gap-1">
+          {[20, 45, 15, 20].map((w, i) => (
+            <div key={i} className="h-0.5 rounded-sm bg-white/40" style={{ width: `${w}%` }} />
           ))}
         </div>
-        <div className="flex gap-0.5 mt-0.5">
-          {[2, 8, 3, 3].map((w, i) => (
-            <div key={i} className="h-1 rounded-sm bg-gray-100" style={{ width: `${w * 6}%` }} />
+        <div className="p-1 space-y-0.5">
+          {[60, 50].map((w, i) => (
+            <div key={i} className="flex gap-1">
+              <div className="h-1 rounded-sm bg-gray-100" style={{ width: `${w}%` }} />
+              <div className="h-1 w-5 rounded-sm bg-amber-100 ml-auto" />
+            </div>
           ))}
         </div>
+        <div className="h-2 bg-amber-400 mt-auto" />
       </div>
     ),
   },
@@ -174,33 +282,33 @@ export function InvoiceCustomizerPanel() {
 
       <div className="flex-1 overflow-y-auto">
         {/* ── Template Selection ── */}
-        <Section title="Template">
-          <div className="grid grid-cols-3 gap-2">
+        <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">Choose Style</p>
+          <div className="grid grid-cols-2 gap-2">
             {TEMPLATES.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => setConfig({ template: t.id })}
                 className={cn(
-                  'rounded-lg p-1.5 border-2 transition-all',
+                  'rounded-xl p-2 border-2 transition-all text-left',
                   config.template === t.id
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                    : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                    ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
+                    : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
                 )}
               >
                 {t.thumb}
-                <p
-                  className={cn(
-                    'text-[10px] mt-1.5 font-semibold text-center',
-                    config.template === t.id ? 'text-blue-600' : 'text-slate-500'
-                  )}
-                >
-                  {t.name}
-                </p>
+                <div className="mt-2">
+                  <p className={cn('text-[11px] font-bold', config.template === t.id ? 'text-amber-700 dark:text-amber-400' : 'text-slate-600 dark:text-slate-400')}>
+                    {t.name}
+                    {config.template === t.id && <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wide bg-amber-500 text-white px-1.5 py-0.5 rounded-full">Active</span>}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">{t.desc}</p>
+                </div>
               </button>
             ))}
           </div>
-        </Section>
+        </div>
 
         {/* ── Branding ── */}
         <Section title="Branding">

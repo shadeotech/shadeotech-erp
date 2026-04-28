@@ -53,6 +53,17 @@ import {
   Loader2,
   ClipboardList,
   MapPin,
+  Settings,
+  LayoutDashboard,
+  Receipt,
+  Mail,
+  Calendar,
+  BarChart3,
+  Tag,
+  Truck,
+  Bell,
+  Wallet,
+  CheckCircle2,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { useQuotesStore } from '@/stores/quotesStore'
@@ -124,16 +135,27 @@ interface UserData {
 }
 
 const PERM_CATEGORIES = [
-  { id: 'sales', name: 'Sales' },
-  { id: 'production', name: 'Production' },
-  { id: 'contacts', name: 'Contacts' },
-  { id: 'calendar', name: 'Calendar' },
-  { id: 'tasks', name: 'Tasks' },
-  { id: 'leads', name: 'Leads' },
-  { id: 'tickets', name: 'Tickets' },
-  { id: 'reports', name: 'Reports' },
-  { id: 'accounting', name: 'Accounting' },
-  { id: 'delivery', name: 'Delivery' },
+  { id: 'sales',          name: 'Sales' },
+  { id: 'estimates',      name: 'Estimates' },
+  { id: 'invoices',       name: 'Invoices' },
+  { id: 'payments',       name: 'Payments' },
+  { id: 'production',     name: 'Production' },
+  { id: 'inventory',      name: 'Inventory' },
+  { id: 'purchase_orders',name: 'Purchase Orders' },
+  { id: 'fabric_gallery', name: 'Fabric Gallery' },
+  { id: 'contacts',       name: 'Contacts' },
+  { id: 'leads',          name: 'Leads' },
+  { id: 'calendar',       name: 'Calendar' },
+  { id: 'tasks',          name: 'Tasks' },
+  { id: 'tickets',        name: 'Tickets' },
+  { id: 'messages',       name: 'Messages' },
+  { id: 'delivery',       name: 'Delivery' },
+  { id: 'accounting',     name: 'Accounting' },
+  { id: 'banking',        name: 'Banking' },
+  { id: 'sales_tax',      name: 'Sales Tax' },
+  { id: 'reports',        name: 'Reports' },
+  { id: 'analytics',      name: 'Analytics' },
+  { id: 'settings',       name: 'Settings' },
 ]
 const PERM_LEVELS = ['no', 'read', 'edit', 'full'] as const
 type PermLevel = typeof PERM_LEVELS[number]
@@ -514,6 +536,15 @@ export default function SettingsPage() {
   const [rejectingUser, setRejectingUser] = useState<UserData | null>(null)
   const { config: invoiceConfig } = useInvoiceTemplateStore()
   const [invoiceStyleSaving, setInvoiceStyleSaving] = useState(false)
+  const [reminderConfig, setReminderConfig] = useState({
+    enabled: false,
+    frequencyDays: 3,
+    maxReminders: 5,
+    emailSubject: '',
+    emailMessage: '',
+  })
+  const [reminderSaving, setReminderSaving] = useState(false)
+  const [reminderSaved, setReminderSaved] = useState(false)
   const [selectedContract, setSelectedContract] = useState<string | null>(null)
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
   const [auditLogsLoading, setAuditLogsLoading] = useState(false)
@@ -616,6 +647,15 @@ export default function SettingsPage() {
       if (response.ok) {
         const data = await response.json()
         setCompanyAddress(data.companyAddress || '')
+        if (data.invoiceReminderConfig) {
+          setReminderConfig({
+            enabled: data.invoiceReminderConfig.enabled ?? false,
+            frequencyDays: data.invoiceReminderConfig.frequencyDays ?? 3,
+            maxReminders: data.invoiceReminderConfig.maxReminders ?? 5,
+            emailSubject: data.invoiceReminderConfig.emailSubject ?? '',
+            emailMessage: data.invoiceReminderConfig.emailMessage ?? '',
+          })
+        }
         if (Array.isArray(data.ticketSubjects) && data.ticketSubjects.length > 0) {
           setTicketSubjects(data.ticketSubjects)
         } else {
@@ -730,6 +770,25 @@ export default function SettingsPage() {
       toast({ title: 'Error', description: 'Failed to save invoice style.', variant: 'destructive' })
     } finally {
       setInvoiceStyleSaving(false)
+    }
+  }
+
+  const saveReminderConfig = async () => {
+    if (!token) return
+    setReminderSaving(true)
+    try {
+      const response = await fetch('/api/settings/company', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ invoiceReminderConfig: reminderConfig }),
+      })
+      if (!response.ok) throw new Error('Failed to save')
+      setReminderSaved(true)
+      setTimeout(() => setReminderSaved(false), 3000)
+    } catch {
+      toast({ title: 'Error', description: 'Failed to save reminder settings.', variant: 'destructive' })
+    } finally {
+      setReminderSaving(false)
     }
   }
 
@@ -1592,33 +1651,44 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <Select value={activeTab} onValueChange={setActiveTab}>
-          <SelectTrigger className="w-[220px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="pricing">Pricing</SelectItem>
-            <SelectItem value="production-sheets">Production Sheets</SelectItem>
-            <SelectItem value="add-ons">Add ons</SelectItem>
-            <SelectItem value="product-images">Product Images</SelectItem>
-            <SelectItem value="users">Users</SelectItem>
-            <SelectItem value="invoice-style">Invoice Style</SelectItem>
-            <SelectItem value="contracts">Agreements</SelectItem>
-            <SelectItem value="help-library">Help Library</SelectItem>
-            <SelectItem value="care-maintenance">Care &amp; Maintenance</SelectItem>
-            <SelectItem value="address">Address</SelectItem>
-            <SelectItem value="audit-logs">Audit Logs</SelectItem>
-            <SelectItem value="quote-options">Estimate Options</SelectItem>
-            <SelectItem value="booking">Booking Settings</SelectItem>
-            <SelectItem value="ticket-subjects">Ticket Subjects</SelectItem>
-            <SelectItem value="email-templates">Email Templates</SelectItem>
-            <SelectItem value="workflows">Workflows</SelectItem>
-          </SelectContent>
-        </Select>
+      {/* Nav Grid */}
+      <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 pb-4 border-b border-gray-200 dark:border-gray-700">
+        {([
+          { value: 'address',           label: 'Address',           icon: MapPin },
+          { value: 'users',             label: 'Users & Perms',     icon: Users },
+          { value: 'audit-logs',        label: 'Audit Logs',        icon: Shield },
+          { value: 'pricing',           label: 'Pricing',           icon: DollarSign },
+          { value: 'add-ons',           label: 'Add-ons',           icon: Tag },
+          { value: 'quote-options',     label: 'Estimate Options',  icon: FileText },
+          { value: 'production-sheets', label: 'Prod. Sheets',      icon: ClipboardList },
+          { value: 'product-images',    label: 'Product Images',    icon: ImageIcon },
+          { value: 'invoice-style',     label: 'Invoice Style',     icon: Receipt },
+          { value: 'invoice-reminders', label: 'Inv. Reminders',    icon: Bell },
+          { value: 'contracts',         label: 'Agreements',        icon: FileCheck },
+          { value: 'email-templates',   label: 'Email Templates',   icon: Mail },
+          { value: 'help-library',      label: 'Help Library',      icon: BookOpen },
+          { value: 'care-maintenance',  label: 'Care & Maint.',     icon: Wrench },
+          { value: 'booking',           label: 'Booking',           icon: Calendar },
+          { value: 'ticket-subjects',   label: 'Ticket Subjects',   icon: Bell },
+          { value: 'workflows',         label: 'Workflows',         icon: BarChart3 },
+        ] as const).map(({ value, label, icon: Icon }) => (
+          <button key={value} onClick={() => setActiveTab(value)}
+            className={`flex flex-col items-center gap-1.5 px-2 py-3 rounded-xl border text-center transition-all ${
+              activeTab === value
+                ? 'border-amber-400 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 shadow-sm'
+                : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+            }`}>
+            <Icon className="h-4 w-4 shrink-0" />
+            <span className="text-[11px] font-medium leading-tight">{label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div>
 
         {/* Pricing Tab */}
-        <TabsContent value="pricing" className="space-y-6">
+        {activeTab === 'pricing' && <div className="space-y-6">
           {/* Pricing Configuration Card - Commented Out */}
           {false && (
           <Card>
@@ -1703,15 +1773,15 @@ export default function SettingsPage() {
 
           {/* Product Collection Pricing Charts */}
           <ProductCollectionPricingCharts />
-        </TabsContent>
+        </div>}
 
         {/* Production Sheets Tab */}
-        <TabsContent value="production-sheets" className="space-y-6">
+        {activeTab === 'production-sheets' && <div className="space-y-6">
           <ProductionSheetsSettings />
-        </TabsContent>
+        </div>}
 
         {/* Add ons Tab */}
-        <TabsContent value="add-ons" className="space-y-6">
+        {activeTab === 'add-ons' && <div className="space-y-6">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -1874,11 +1944,11 @@ export default function SettingsPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </TabsContent>
+        </div>}
 
         {/* Products Tab */}
         {/* Product Images Tab */}
-        <TabsContent value="product-images" className="space-y-6">
+        {activeTab === 'product-images' && <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Product Images</CardTitle>
@@ -2027,7 +2097,7 @@ export default function SettingsPage() {
               </Dialog>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>}
 
         {/* Fabrics Tab — commented out */}
         {/* <TabsContent value="fabrics" className="space-y-6">
@@ -2179,10 +2249,10 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent> */}
+        </div>} */}
 
         {/* Users Tab */}
-        <TabsContent value="users" className="space-y-6">
+        {activeTab === 'users' && <div className="space-y-6">
           {/* Pending signup requests */}
           <Card>
             <CardHeader>
@@ -2489,11 +2559,11 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>}
 
         {/* Per-User Permissions Dialog */}
         <Dialog open={!!permDialogUser} onOpenChange={(open) => !open && setPermDialogUser(null)}>
-          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Shield className="h-4 w-4" />
@@ -2503,15 +2573,15 @@ export default function SettingsPage() {
                 Set access level for each module. "No Access" hides the page from sidebar.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-2 py-2">
+            <div className="grid grid-cols-3 gap-x-6 gap-y-1 py-2">
               {PERM_CATEGORIES.map((cat) => (
-                <div key={cat.id} className="flex items-center justify-between gap-4 py-2 border-b border-border last:border-0">
-                  <span className="text-sm font-medium">{cat.name}</span>
+                <div key={cat.id} className="flex items-center justify-between gap-2 py-2 border-b border-border">
+                  <span className="text-sm font-medium truncate">{cat.name}</span>
                   <Select
                     value={permDialogData[cat.id] || 'no'}
                     onValueChange={(v) => setPermDialogData(prev => ({ ...prev, [cat.id]: v as PermLevel }))}
                   >
-                    <SelectTrigger className="w-36 h-8 text-xs">
+                    <SelectTrigger className="w-28 h-7 text-xs shrink-0">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -2526,7 +2596,7 @@ export default function SettingsPage() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setPermDialogUser(null)}>Cancel</Button>
-              <Button onClick={handleSavePermissions} disabled={savingPerms}>
+              <Button onClick={handleSavePermissions} disabled={savingPerms} className="bg-amber-500 hover:bg-amber-600 text-white border-0">
                 {savingPerms ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving…</> : 'Save Permissions'}
               </Button>
             </DialogFooter>
@@ -2534,8 +2604,29 @@ export default function SettingsPage() {
         </Dialog>
 
         {/* Invoice Style Tab */}
-        <TabsContent value="invoice-style">
+        {activeTab === 'invoice-style' && <div className="space-y-4">
+          {/* Header bar */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Invoice Style</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Choose a template, then customize colors, branding and content</p>
+            </div>
+            <Button onClick={saveInvoiceStyle} disabled={invoiceStyleSaving}>
+              {invoiceStyleSaving ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving…</>
+              ) : (
+                <><Save className="mr-2 h-4 w-4" />Save Style</>
+              )}
+            </Button>
+          </div>
+
+          {/* Editor + Preview */}
           <div className="flex gap-0 border rounded-xl overflow-hidden bg-white dark:bg-slate-950 min-h-[700px]">
+            {/* Customizer Panel */}
+            <div className="w-80 flex-shrink-0 border-r border-slate-100 dark:border-slate-800 flex flex-col overflow-y-auto">
+              <InvoiceCustomizerPanel />
+            </div>
+
             {/* Live Preview */}
             <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900 p-6">
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-4">Live Preview</p>
@@ -2564,30 +2655,147 @@ export default function SettingsPage() {
                 config={invoiceConfig}
               />
             </div>
+          </div>
+          <p className="text-xs text-muted-foreground text-center">
+            Changes are previewed live. Click <strong>Save Style</strong> to apply to all invoices.
+          </p>
+        </div>}
 
-            {/* Customizer Panel */}
-            <div className="w-72 flex-shrink-0 border-l border-slate-100 dark:border-slate-800 flex flex-col">
-              <div className="flex-1 overflow-y-auto">
-                <InvoiceCustomizerPanel />
+        {/* Invoice Reminders Tab */}
+        {activeTab === 'invoice-reminders' && <div className="space-y-5 max-w-2xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Payment Reminders</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Automatically email customers about overdue invoices</p>
+            </div>
+            <Button onClick={saveReminderConfig} disabled={reminderSaving}
+              className={reminderSaved ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-0' : 'bg-amber-500 hover:bg-amber-600 text-white border-0'}>
+              {reminderSaving
+                ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving…</>
+                : reminderSaved
+                ? <><CheckCircle2 className="mr-2 h-4 w-4" />Saved!</>
+                : <><Save className="mr-2 h-4 w-4" />Save Settings</>
+              }
+            </Button>
+          </div>
+
+          {/* Enable toggle */}
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">Enable automatic reminders</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Send reminder emails to customers with overdue unpaid invoices</p>
               </div>
-              <div className="p-4 border-t border-slate-100 dark:border-slate-800">
-                <Button className="w-full" onClick={saveInvoiceStyle} disabled={invoiceStyleSaving}>
-                  {invoiceStyleSaving ? (
-                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving…</>
-                  ) : (
-                    <><Save className="mr-2 h-4 w-4" />Save Invoice Style</>
-                  )}
-                </Button>
-                <p className="text-xs text-muted-foreground text-center mt-2">
-                  Dealers &amp; customers will see this style
-                </p>
+              <button
+                type="button"
+                onClick={() => setReminderConfig(c => ({ ...c, enabled: !c.enabled }))}
+                className={cn(
+                  'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none',
+                  reminderConfig.enabled ? 'bg-amber-500' : 'bg-gray-200 dark:bg-gray-700'
+                )}
+              >
+                <span className={cn(
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  reminderConfig.enabled ? 'translate-x-6' : 'translate-x-1'
+                )} />
+              </button>
+            </div>
+
+            {reminderConfig.enabled && (
+              <div className="pt-3 border-t border-gray-100 dark:border-gray-800 grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Send reminder every</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number" min={1} max={30}
+                      value={reminderConfig.frequencyDays}
+                      onChange={e => setReminderConfig(c => ({ ...c, frequencyDays: parseInt(e.target.value) || 3 }))}
+                      className="h-8 text-sm w-20"
+                    />
+                    <span className="text-sm text-muted-foreground">days after due date</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Reminders will be sent every {reminderConfig.frequencyDays} day{reminderConfig.frequencyDays !== 1 ? 's' : ''}</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Maximum reminders per invoice</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number" min={1} max={20}
+                      value={reminderConfig.maxReminders}
+                      onChange={e => setReminderConfig(c => ({ ...c, maxReminders: parseInt(e.target.value) || 5 }))}
+                      className="h-8 text-sm w-20"
+                    />
+                    <span className="text-sm text-muted-foreground">reminders max</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Stop after {reminderConfig.maxReminders} reminder{reminderConfig.maxReminders !== 1 ? 's' : ''} per invoice</p>
+                </div>
               </div>
+            )}
+          </div>
+
+          {/* Email content */}
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 space-y-4">
+            <div>
+              <p className="text-sm font-medium text-gray-900 dark:text-white">Reminder Email Content</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Leave blank to use the default template</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Email subject</Label>
+              <Input
+                placeholder="Payment Reminder – Invoice {invoiceNumber}"
+                value={reminderConfig.emailSubject}
+                onChange={e => setReminderConfig(c => ({ ...c, emailSubject: e.target.value }))}
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Message body</Label>
+              <Textarea
+                rows={4}
+                placeholder="This is a friendly reminder that invoice {invoiceNumber} has an outstanding balance…"
+                value={reminderConfig.emailMessage}
+                onChange={e => setReminderConfig(c => ({ ...c, emailMessage: e.target.value }))}
+                className="text-sm"
+              />
+              <p className="text-xs text-muted-foreground">You can use &#123;invoiceNumber&#125;, &#123;balance&#125;, &#123;dueDate&#125;, &#123;customerName&#125; as placeholders</p>
             </div>
           </div>
-        </TabsContent>
+
+          {/* Manual trigger */}
+          <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 space-y-3">
+            <div>
+              <p className="text-sm font-medium text-gray-900 dark:text-white">Manual trigger</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Run the reminder check now for all overdue invoices</p>
+            </div>
+            <Button variant="outline" size="sm"
+              onClick={async () => {
+                if (!token) return
+                const cronSecret = process.env.NEXT_PUBLIC_CRON_SECRET
+                const res = await fetch('/api/invoices/reminders/cron', {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${cronSecret || token}` },
+                })
+                const d = await res.json()
+                toast({
+                  title: d.skipped ? 'Reminders disabled' : `Reminders processed`,
+                  description: d.skipped ? d.reason : `${d.results?.filter((r: any) => r.action === 'sent').length ?? 0} reminder email(s) sent`,
+                })
+              }}
+            >
+              <Bell className="mr-2 h-4 w-4" />Run reminder check now
+            </Button>
+          </div>
+
+          {/* Info box */}
+          <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4 text-xs text-amber-700 dark:text-amber-400 space-y-1">
+            <p className="font-medium">How automatic reminders work</p>
+            <p>The cron endpoint <code className="bg-amber-100 dark:bg-amber-900/40 px-1 rounded">/api/invoices/reminders/cron</code> should be called daily (e.g. via Vercel Cron). It finds all SENT / PARTIALLY_PAID / OVERDUE invoices past their due date and sends reminder emails according to the frequency above.</p>
+            <p className="mt-1">Each reminder is logged in the invoice&apos;s Email Activity with open tracking.</p>
+          </div>
+        </div>}
 
         {/* Agreements Tab */}
-        <TabsContent value="contracts" className="space-y-6">
+        {activeTab === 'contracts' && <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Agreement Templates</CardTitle>
@@ -2628,10 +2836,10 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>}
 
         {/* Help Library Tab */}
-        <TabsContent value="help-library" className="space-y-6">
+        {activeTab === 'help-library' && <div className="space-y-6">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -2796,10 +3004,10 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>}
 
         {/* Care & Maintenance Tab */}
-        <TabsContent value="care-maintenance" className="space-y-6">
+        {activeTab === 'care-maintenance' && <div className="space-y-6">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -2964,10 +3172,10 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>}
 
         {/* Address Tab */}
-        <TabsContent value="address" className="space-y-6">
+        {activeTab === 'address' && <div className="space-y-6">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -3023,10 +3231,10 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>}
 
         {/* Audit Logs Tab */}
-        <TabsContent value="audit-logs" className="space-y-6">
+        {activeTab === 'audit-logs' && <div className="space-y-6">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -3134,10 +3342,10 @@ export default function SettingsPage() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>}
 
         {/* Quote Options Tab */}
-        <TabsContent value="quote-options" className="space-y-6">
+        {activeTab === 'quote-options' && <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -3152,9 +3360,9 @@ export default function SettingsPage() {
               <QuoteOptionsSettings />
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>}
 
-        <TabsContent value="booking" className="space-y-6">
+        {activeTab === 'booking' && <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -3217,9 +3425,9 @@ export default function SettingsPage() {
               </Button>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>}
 
-        <TabsContent value="ticket-subjects" className="space-y-6">
+        {activeTab === 'ticket-subjects' && <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -3283,18 +3491,18 @@ export default function SettingsPage() {
               </Button>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>}
 
         {/* Email Templates Tab */}
-        <TabsContent value="email-templates" className="space-y-6">
+        {activeTab === 'email-templates' && <div className="space-y-6">
           <EmailTemplatesTab />
-        </TabsContent>
+        </div>}
 
         {/* Workflows Tab */}
-        <TabsContent value="workflows" className="space-y-6">
+        {activeTab === 'workflows' && <div className="space-y-6">
           <WorkflowsTab />
-        </TabsContent>
-      </Tabs>
+        </div>}
+      </div>{/* end content */}
 
       {/* Edit Agreement Dialog */}
       <Dialog open={contractDialogOpen} onOpenChange={setContractDialogOpen}>

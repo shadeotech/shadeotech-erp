@@ -23,6 +23,24 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
+import {
   FileText,
   TrendingUp,
   DollarSign,
@@ -33,6 +51,13 @@ import {
   ArrowLeft,
   Search,
   Shield,
+  MoreHorizontal,
+  Eye,
+  Printer,
+  Mail,
+  ShieldOff,
+  ShieldCheck,
+  Ban,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { format } from 'date-fns'
@@ -86,6 +111,32 @@ const reports: Report[] = [
   },
 ]
 
+interface WarrantyRegistration {
+  id: string
+  customerName: string
+  sideMark: string
+  productName: string
+  category: string
+  serialNumber: string
+  purchaseDate: string
+  warrantyStartDate: string
+  warrantyEndDate: string
+  warrantyPeriod: string
+  status: string
+  email: string
+  phone: string
+  installationDate: string
+}
+
+const CANCELLATION_REASONS = [
+  'Chargeback',
+  'Payment Dispute',
+  'Fraudulent Transaction',
+  'Customer Request',
+  'Other',
+] as const
+type CancellationReason = typeof CANCELLATION_REASONS[number]
+
 export default function ReportsPage() {
   const router = useRouter()
   const { quotes } = useQuotesStore()
@@ -93,6 +144,13 @@ export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
+  const [previewWarranty, setPreviewWarranty] = useState<WarrantyRegistration | null>(null)
+  const [sendingEmail, setSendingEmail] = useState<string | null>(null)
+  const [cancelTarget, setCancelTarget] = useState<WarrantyRegistration | null>(null)
+  const [cancelReason, setCancelReason] = useState<CancellationReason>('Chargeback')
+  const [cancelNote, setCancelNote] = useState('')
+  const [inactiveMap, setInactiveMap] = useState<Record<string, { reason: CancellationReason; note: string; date: string }>>({})
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
 
   const handleGenerateReport = (reportId: ReportType) => {
     setSelectedReport(reportId)
@@ -102,6 +160,84 @@ export default function ReportsPage() {
     setSelectedReport(null)
     setDateFrom('')
     setDateTo('')
+  }
+
+  const handlePrintWarranty = (warranty: WarrantyRegistration) => {
+    const win = window.open('', '_blank', 'width=800,height=600')
+    if (!win) return
+    win.document.write(`
+      <html><head><title>Warranty Certificate – ${warranty.id}</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 40px; color: #111; }
+        h1 { font-size: 22px; margin-bottom: 4px; }
+        .sub { color: #666; font-size: 14px; margin-bottom: 24px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        td { padding: 8px 12px; border: 1px solid #ddd; font-size: 14px; }
+        td:first-child { font-weight: 600; width: 200px; background: #f9f9f9; }
+        .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px;
+          background: ${warranty.status === 'Active' ? '#dcfce7' : warranty.status === 'Expiring Soon' ? '#ffedd5' : '#fee2e2'};
+          color: ${warranty.status === 'Active' ? '#166534' : warranty.status === 'Expiring Soon' ? '#9a3412' : '#991b1b'}; }
+      </style></head><body>
+      <h1>Warranty Certificate</h1>
+      <div class="sub">Registration ID: ${warranty.id}</div>
+      <table>
+        <tr><td>Customer</td><td>${warranty.customerName}</td></tr>
+        <tr><td>Email</td><td>${warranty.email}</td></tr>
+        <tr><td>Phone</td><td>${warranty.phone}</td></tr>
+        <tr><td>Side Mark</td><td>${warranty.sideMark}</td></tr>
+        <tr><td>Product</td><td>${warranty.productName}</td></tr>
+        <tr><td>Category</td><td>${warranty.category}</td></tr>
+        <tr><td>Serial Number</td><td>${warranty.serialNumber}</td></tr>
+        <tr><td>Purchase Date</td><td>${format(new Date(warranty.purchaseDate), 'MMM dd, yyyy')}</td></tr>
+        <tr><td>Installation Date</td><td>${format(new Date(warranty.installationDate), 'MMM dd, yyyy')}</td></tr>
+        <tr><td>Warranty Period</td><td>${warranty.warrantyPeriod}</td></tr>
+        <tr><td>Valid From</td><td>${format(new Date(warranty.warrantyStartDate), 'MMM dd, yyyy')}</td></tr>
+        <tr><td>Valid Until</td><td>${format(new Date(warranty.warrantyEndDate), 'MMM dd, yyyy')}</td></tr>
+        <tr><td>Status</td><td><span class="badge">${warranty.status}</span></td></tr>
+      </table>
+      </body></html>
+    `)
+    win.document.close()
+    win.focus()
+    win.print()
+  }
+
+  const handleSendEmail = async (warranty: WarrantyRegistration) => {
+    setSendingEmail(warranty.id)
+    try {
+      await fetch('/api/warranty/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ warrantyId: warranty.id, email: warranty.email }),
+      })
+    } catch (_) {
+      // best-effort
+    } finally {
+      setSendingEmail(null)
+    }
+  }
+
+  const confirmCancelWarranty = () => {
+    if (!cancelTarget) return
+    setInactiveMap(prev => ({
+      ...prev,
+      [cancelTarget.id]: {
+        reason: cancelReason,
+        note: cancelNote.trim(),
+        date: new Date().toISOString().split('T')[0],
+      },
+    }))
+    setCancelTarget(null)
+    setCancelNote('')
+    setCancelReason('Chargeback')
+  }
+
+  const handleReactivate = (warrantyId: string) => {
+    setInactiveMap(prev => {
+      const next = { ...prev }
+      delete next[warrantyId]
+      return next
+    })
   }
 
   // Filter reports by search
@@ -193,7 +329,7 @@ export default function ReportsPage() {
   }, [selectedReport, filteredQuotes])
 
   // Mock Warranty Registration Data
-  const warrantyRegistrations = useMemo(() => {
+  const warrantyRegistrations = useMemo((): WarrantyRegistration[] => {
     return [
       {
         id: 'WR-2024-001',
@@ -315,11 +451,18 @@ export default function ReportsPage() {
       )
     }
 
+    if (statusFilter === 'inactive') {
+      filtered = filtered.filter(w => !!inactiveMap[w.id])
+    } else if (statusFilter === 'active') {
+      filtered = filtered.filter(w => !inactiveMap[w.id])
+    }
+
     return filtered
-  }, [warrantyRegistrations, dateFrom, dateTo, search])
+  }, [warrantyRegistrations, dateFrom, dateTo, search, statusFilter, inactiveMap])
 
   if (selectedReport) {
     return (
+      <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -480,16 +623,14 @@ export default function ReportsPage() {
         {selectedReport === 'warranty_registration' && (
           <div className="space-y-6">
             {/* Summary Cards */}
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-4">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm text-muted-foreground">Total Warranties</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-semibold">{filteredWarranties.length}</div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Registered products under warranty
-                  </p>
+                  <div className="text-2xl font-semibold">{warrantyRegistrations.length}</div>
+                  <p className="text-xs text-muted-foreground mt-1">All registered warranties</p>
                 </CardContent>
               </Card>
               <Card>
@@ -498,11 +639,9 @@ export default function ReportsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-semibold text-green-600">
-                    {filteredWarranties.filter(w => w.status === 'Active').length}
+                    {warrantyRegistrations.filter(w => !inactiveMap[w.id] && w.status === 'Active').length}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Currently active warranties
-                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">Currently active warranties</p>
                 </CardContent>
               </Card>
               <Card>
@@ -511,11 +650,20 @@ export default function ReportsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-semibold text-orange-600">
-                    {filteredWarranties.filter(w => w.status === 'Expiring Soon').length}
+                    {warrantyRegistrations.filter(w => !inactiveMap[w.id] && w.status === 'Expiring Soon').length}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Within next 6 months
-                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">Within next 6 months</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm text-muted-foreground">Inactive / Cancelled</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-semibold text-slate-500">
+                    {Object.keys(inactiveMap).length}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Chargebacks & disputes</p>
                 </CardContent>
               </Card>
             </div>
@@ -534,10 +682,24 @@ export default function ReportsPage() {
             {/* Warranty Table */}
             <Card>
               <CardHeader>
-                <CardTitle>Warranty Registrations</CardTitle>
-                <CardDescription>
-                  Complete list of all registered product warranties with customer information
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Warranty Registrations</CardTitle>
+                    <CardDescription>
+                      Complete list of all registered product warranties with customer information
+                    </CardDescription>
+                  </div>
+                  <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Warranties</SelectItem>
+                      <SelectItem value="active">Active Only</SelectItem>
+                      <SelectItem value="inactive">Inactive Only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="rounded-lg border">
@@ -552,13 +714,16 @@ export default function ReportsPage() {
                         <TableHead>Warranty Period</TableHead>
                         <TableHead>Valid Until</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead className="w-10" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredWarranties.length > 0 ? (
-                        filteredWarranties.map((warranty) => (
-                          <TableRow key={warranty.id}>
-                            <TableCell className="font-medium">
+                        filteredWarranties.map((warranty) => {
+                          const inactive = inactiveMap[warranty.id]
+                          return (
+                          <TableRow key={warranty.id} className={inactive ? 'opacity-60' : ''}>
+                            <TableCell className={`font-medium ${inactive ? 'line-through text-muted-foreground' : ''}`}>
                               {warranty.id}
                             </TableCell>
                             <TableCell>
@@ -587,24 +752,75 @@ export default function ReportsPage() {
                               {format(new Date(warranty.warrantyEndDate), 'MMM dd, yyyy')}
                             </TableCell>
                             <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={
-                                  warranty.status === 'Active'
-                                    ? 'bg-green-500/10 text-green-600 border-0'
-                                    : warranty.status === 'Expiring Soon'
-                                    ? 'bg-orange-500/10 text-orange-600 border-0'
-                                    : 'bg-red-500/10 text-red-600 border-0'
-                                }
-                              >
-                                {warranty.status}
-                              </Badge>
+                              {inactive ? (
+                                <div className="space-y-1">
+                                  <Badge variant="outline" className="bg-slate-500/10 text-slate-500 border-0">
+                                    Inactive
+                                  </Badge>
+                                  <p className="text-xs text-muted-foreground">{inactive.reason}</p>
+                                </div>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    warranty.status === 'Active'
+                                      ? 'bg-green-500/10 text-green-600 border-0'
+                                      : warranty.status === 'Expiring Soon'
+                                      ? 'bg-orange-500/10 text-orange-600 border-0'
+                                      : 'bg-red-500/10 text-red-600 border-0'
+                                  }
+                                >
+                                  {warranty.status}
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => setPreviewWarranty(warranty)}>
+                                    <Eye className="h-4 w-4 mr-2" />
+                                    Preview
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handlePrintWarranty(warranty)}>
+                                    <Printer className="h-4 w-4 mr-2" />
+                                    Print
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => handleSendEmail(warranty)}
+                                    disabled={!!inactive || sendingEmail === warranty.id}
+                                  >
+                                    <Mail className="h-4 w-4 mr-2" />
+                                    {sendingEmail === warranty.id ? 'Sending…' : 'Send Email'}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  {inactive ? (
+                                    <DropdownMenuItem onClick={() => handleReactivate(warranty.id)}>
+                                      <ShieldCheck className="h-4 w-4 mr-2 text-green-600" />
+                                      <span className="text-green-600">Reactivate Warranty</span>
+                                    </DropdownMenuItem>
+                                  ) : (
+                                    <DropdownMenuItem
+                                      onClick={() => { setCancelTarget(warranty); setCancelReason('Chargeback'); setCancelNote('') }}
+                                      className="text-red-600 focus:text-red-600"
+                                    >
+                                      <Ban className="h-4 w-4 mr-2" />
+                                      Cancel Warranty
+                                    </DropdownMenuItem>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </TableCell>
                           </TableRow>
-                        ))
+                          )
+                        })
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                          <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                             No warranty registrations found matching your criteria
                           </TableCell>
                         </TableRow>
@@ -637,6 +853,178 @@ export default function ReportsPage() {
           </Card>
         )}
       </div>
+      {/* Cancel Warranty Dialog */}
+      <Dialog open={!!cancelTarget} onOpenChange={(open) => { if (!open) setCancelTarget(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Ban className="h-5 w-5" />
+              Cancel Warranty
+            </DialogTitle>
+            <DialogDescription>
+              This will mark the warranty as <strong>Inactive</strong>. The customer will no longer be covered. You can reactivate it at any time.
+            </DialogDescription>
+          </DialogHeader>
+          {cancelTarget && (
+            <div className="space-y-4 py-1">
+              <div className="rounded-lg border px-4 py-3 bg-muted/40 text-sm space-y-1">
+                <p className="font-medium">{cancelTarget.customerName}</p>
+                <p className="text-muted-foreground">{cancelTarget.productName} · {cancelTarget.serialNumber}</p>
+                <p className="text-muted-foreground">Registration: {cancelTarget.id}</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Reason for Cancellation</Label>
+                <Select value={cancelReason} onValueChange={(v) => setCancelReason(v as CancellationReason)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CANCELLATION_REASONS.map(r => (
+                      <SelectItem key={r} value={r}>{r}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Notes <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                <Textarea
+                  placeholder="Add internal notes about the chargeback or dispute…"
+                  value={cancelNote}
+                  onChange={(e) => setCancelNote(e.target.value)}
+                  rows={3}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmCancelWarranty}>
+              <ShieldOff className="h-4 w-4 mr-2" />
+              Confirm — Mark Inactive
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Warranty Preview Modal */}
+      <Dialog open={!!previewWarranty} onOpenChange={(open) => { if (!open) setPreviewWarranty(null) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-amber-500" />
+              Warranty Certificate
+            </DialogTitle>
+          </DialogHeader>
+          {previewWarranty && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Registration ID</span>
+                <span className="font-mono font-semibold">{previewWarranty.id}</span>
+              </div>
+              <div className="border rounded-lg divide-y text-sm">
+                <div className="grid grid-cols-2 px-4 py-2.5">
+                  <span className="text-muted-foreground">Customer</span>
+                  <span className="font-medium">{previewWarranty.customerName}</span>
+                </div>
+                <div className="grid grid-cols-2 px-4 py-2.5">
+                  <span className="text-muted-foreground">Email</span>
+                  <span>{previewWarranty.email}</span>
+                </div>
+                <div className="grid grid-cols-2 px-4 py-2.5">
+                  <span className="text-muted-foreground">Phone</span>
+                  <span>{previewWarranty.phone}</span>
+                </div>
+                <div className="grid grid-cols-2 px-4 py-2.5">
+                  <span className="text-muted-foreground">Side Mark</span>
+                  <span className="font-mono">{previewWarranty.sideMark}</span>
+                </div>
+                <div className="grid grid-cols-2 px-4 py-2.5">
+                  <span className="text-muted-foreground">Product</span>
+                  <span className="font-medium">{previewWarranty.productName}</span>
+                </div>
+                <div className="grid grid-cols-2 px-4 py-2.5">
+                  <span className="text-muted-foreground">Category</span>
+                  <span>{previewWarranty.category}</span>
+                </div>
+                <div className="grid grid-cols-2 px-4 py-2.5">
+                  <span className="text-muted-foreground">Serial Number</span>
+                  <span className="font-mono">{previewWarranty.serialNumber}</span>
+                </div>
+                <div className="grid grid-cols-2 px-4 py-2.5">
+                  <span className="text-muted-foreground">Purchase Date</span>
+                  <span>{format(new Date(previewWarranty.purchaseDate), 'MMM dd, yyyy')}</span>
+                </div>
+                <div className="grid grid-cols-2 px-4 py-2.5">
+                  <span className="text-muted-foreground">Installation Date</span>
+                  <span>{format(new Date(previewWarranty.installationDate), 'MMM dd, yyyy')}</span>
+                </div>
+                <div className="grid grid-cols-2 px-4 py-2.5">
+                  <span className="text-muted-foreground">Warranty Period</span>
+                  <span>{previewWarranty.warrantyPeriod}</span>
+                </div>
+                <div className="grid grid-cols-2 px-4 py-2.5">
+                  <span className="text-muted-foreground">Valid Until</span>
+                  <span className="font-medium">{format(new Date(previewWarranty.warrantyEndDate), 'MMM dd, yyyy')}</span>
+                </div>
+                <div className="grid grid-cols-2 px-4 py-2.5 items-start">
+                  <span className="text-muted-foreground">Status</span>
+                  {inactiveMap[previewWarranty.id] ? (
+                    <div className="space-y-0.5">
+                      <Badge variant="outline" className="bg-slate-500/10 text-slate-500 border-0 w-fit">
+                        Inactive
+                      </Badge>
+                      <p className="text-xs text-muted-foreground">{inactiveMap[previewWarranty.id].reason}</p>
+                      {inactiveMap[previewWarranty.id].note && (
+                        <p className="text-xs text-muted-foreground italic">{inactiveMap[previewWarranty.id].note}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground">Cancelled {inactiveMap[previewWarranty.id].date}</p>
+                    </div>
+                  ) : (
+                    <Badge
+                      variant="outline"
+                      className={
+                        previewWarranty.status === 'Active'
+                          ? 'bg-green-500/10 text-green-600 border-0 w-fit'
+                          : previewWarranty.status === 'Expiring Soon'
+                          ? 'bg-orange-500/10 text-orange-600 border-0 w-fit'
+                          : 'bg-red-500/10 text-red-600 border-0 w-fit'
+                      }
+                    >
+                      {previewWarranty.status}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button variant="outline" className="flex-1" onClick={() => handlePrintWarranty(previewWarranty)}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </Button>
+                {inactiveMap[previewWarranty.id] ? (
+                  <Button
+                    className="flex-1"
+                    variant="outline"
+                    onClick={() => { handleReactivate(previewWarranty.id); setPreviewWarranty(null) }}
+                  >
+                    <ShieldCheck className="h-4 w-4 mr-2 text-green-600" />
+                    <span className="text-green-600">Reactivate</span>
+                  </Button>
+                ) : (
+                  <Button
+                    className="flex-1 bg-amber-500 hover:bg-amber-600 text-white"
+                    onClick={() => { handleSendEmail(previewWarranty); setPreviewWarranty(null) }}
+                    disabled={sendingEmail === previewWarranty.id}
+                  >
+                    <Mail className="h-4 w-4 mr-2" />
+                    {sendingEmail === previewWarranty.id ? 'Sending…' : 'Send Email'}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      </>
     )
   }
 

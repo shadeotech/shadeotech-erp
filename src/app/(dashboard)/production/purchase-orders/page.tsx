@@ -30,7 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, Trash2, Loader2, ChevronDown, ChevronRight, ShoppingCart, Package } from 'lucide-react'
+import { Plus, Trash2, Loader2, ChevronDown, ChevronRight, ShoppingCart, Package, ClipboardList } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useToast } from '@/components/ui/use-toast'
 import type { PurchaseOrder, PurchaseOrderItem } from '@/types/production'
@@ -64,7 +64,20 @@ export default function PurchaseOrdersPage() {
 
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'to-be-sent' | 'material-received'>('to-be-sent')
+  const [activeTab, setActiveTab] = useState<'to-be-sent' | 'material-received' | 'item-receipt'>('to-be-sent')
+
+  // Item Receipt state
+  const [itemReceiptOpen, setItemReceiptOpen] = useState(false)
+  const [itemReceipt, setItemReceipt] = useState({
+    vendor: '',
+    date: format(new Date(), 'yyyy-MM-dd'),
+    receiptNo: '1001',
+    memo: '',
+  })
+  const [itemReceiptLines, setItemReceiptLines] = useState([
+    { product: '', sku: '', rate: '', qtyReceived: '' },
+    { product: '', sku: '', rate: '', qtyReceived: '' },
+  ])
   const [activeView, setActiveView] = useState<'supplier' | 'detailed'>('supplier')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -74,12 +87,53 @@ export default function PurchaseOrdersPage() {
   const [addOpen, setAddOpen] = useState(false)
   const [newPo, setNewPo] = useState({
     supplier: '',
+    email: '',
+    poStatus: 'OPEN',
+    mailingAddress: '',
+    shipTo: '',
     orderDate: format(new Date(), 'yyyy-MM-dd'),
+    dueDate: '',
+    location: '',
+    shippingAddress: 'SHADEOTECH WINDOW FASHIONS\n539 W Commerce St\nDallas, TX  75208-1953 USA',
+    shipVia: '',
+    permitNo: '',
+    sideMark: '',
+    poNumber: '',
+    validity: '',
+    messageToVendor: '',
+    memo: '',
     notes: '',
   })
   const [newPoItems, setNewPoItems] = useState<Partial<PurchaseOrderItem>[]>([
     { itemType: 'Component', itemName: '', itemCode: '', unitType: 'Each', qtyOrdered: 1 },
   ])
+  const [newPoCategories, setNewPoCategories] = useState([
+    { category: '', description: '', amount: '', customer: '' },
+    { category: '', description: '', amount: '', customer: '' },
+  ])
+  const [newPoLineItems, setNewPoLineItems] = useState([
+    { product: '', sku: '', description: '', qty: '', rate: '', amount: '', customer: '', itemType: 'Component', itemId: '' },
+    { product: '', sku: '', description: '', qty: '', rate: '', amount: '', customer: '', itemType: 'Component', itemId: '' },
+  ])
+
+  // Inventory lookup for linking PO items
+  const [inventoryItems, setInventoryItems] = useState<{ id: string; name: string; code: string; type: string; qty: number }[]>([])
+  useEffect(() => {
+    if (!token) return
+    const headers = { Authorization: `Bearer ${token}` }
+    Promise.all([
+      fetch('/api/inventory/fabrics', { headers }).then(r => r.ok ? r.json() : { fabrics: [] }),
+      fetch('/api/inventory/cassettes', { headers }).then(r => r.ok ? r.json() : { cassettes: [] }),
+      fetch('/api/inventory/components', { headers }).then(r => r.ok ? r.json() : { components: [] }),
+    ]).then(([fabData, casData, comData]) => {
+      const all = [
+        ...(fabData.fabrics || []).map((f: any) => ({ id: f._id, name: f.name, code: f.fabricCode || '', type: 'Fabric', qty: f.quantity ?? 0 })),
+        ...(casData.cassettes || []).map((c: any) => ({ id: c._id, name: `${c.type} ${c.color}`, code: c._id.slice(-6), type: 'Cassette', qty: c.quantity ?? 0 })),
+        ...(comData.components || []).map((c: any) => ({ id: c._id, name: c.name, code: c._id.slice(-6), type: 'Component', qty: c.quantity ?? 0 })),
+      ]
+      setInventoryItems(all)
+    }).catch(console.error)
+  }, [token])
 
   // Receive dialog
   const [receiveOpen, setReceiveOpen] = useState(false)
@@ -117,7 +171,7 @@ export default function PurchaseOrdersPage() {
 
   const handleAddPo = async () => {
     if (!token || !newPo.supplier.trim()) {
-      toast({ title: 'Supplier is required', variant: 'destructive' })
+      toast({ title: 'Vendor is required', variant: 'destructive' })
       return
     }
     setSaving(true)
@@ -125,12 +179,39 @@ export default function PurchaseOrdersPage() {
       const res = await fetch('/api/inventory/purchase-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...newPo, items: newPoItems }),
+        body: JSON.stringify({
+          supplier: newPo.supplier,
+          orderDate: newPo.orderDate,
+          notes: newPo.notes,
+          email: newPo.email,
+          poStatus: newPo.poStatus,
+          mailingAddress: newPo.mailingAddress,
+          shipTo: newPo.shipTo,
+          dueDate: newPo.dueDate,
+          location: newPo.location,
+          shippingAddress: newPo.shippingAddress,
+          shipVia: newPo.shipVia,
+          permitNo: newPo.permitNo,
+          sideMark: newPo.sideMark,
+          poNumber: newPo.poNumber,
+          validity: newPo.validity,
+          messageToVendor: newPo.messageToVendor,
+          memo: newPo.memo,
+          items: newPoLineItems
+            .filter(r => r.product.trim())
+            .map(r => ({
+              itemType: r.itemType || 'Component',
+              itemId: r.itemId || undefined,
+              itemName: r.product,
+              itemCode: r.sku,
+              unitType: 'Each',
+              qtyOrdered: parseFloat(r.qty) || 1,
+            })),
+        }),
       })
       if (!res.ok) throw new Error('Failed to create purchase order')
       setAddOpen(false)
-      setNewPo({ supplier: '', orderDate: format(new Date(), 'yyyy-MM-dd'), notes: '' })
-      setNewPoItems([{ itemType: 'Component', itemName: '', itemCode: '', unitType: 'Each', qtyOrdered: 1 }])
+      resetNewPo()
       await fetchOrders()
       toast({ title: 'Purchase order created' })
     } catch (e) {
@@ -138,6 +219,25 @@ export default function PurchaseOrdersPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const resetNewPo = () => {
+    setNewPo({
+      supplier: '', email: '', poStatus: 'OPEN', mailingAddress: '', shipTo: '',
+      orderDate: format(new Date(), 'yyyy-MM-dd'), dueDate: '', location: '',
+      shippingAddress: 'SHADEOTECH WINDOW FASHIONS\n539 W Commerce St\nDallas, TX  75208-1953 USA',
+      shipVia: '', permitNo: '', sideMark: '', poNumber: '', validity: '',
+      messageToVendor: '', memo: '', notes: '',
+    })
+    setNewPoItems([{ itemType: 'Component', itemName: '', itemCode: '', unitType: 'Each', qtyOrdered: 1 }])
+    setNewPoCategories([
+      { category: '', description: '', amount: '', customer: '' },
+      { category: '', description: '', amount: '', customer: '' },
+    ])
+    setNewPoLineItems([
+      { product: '', sku: '', description: '', qty: '', rate: '', amount: '', customer: '', itemType: 'Component', itemId: '' },
+      { product: '', sku: '', description: '', qty: '', rate: '', amount: '', customer: '', itemType: 'Component', itemId: '' },
+    ])
   }
 
   const handleSendPo = async (po: PurchaseOrder) => {
@@ -287,10 +387,42 @@ export default function PurchaseOrdersPage() {
             <Package className="h-4 w-4" />
             Order Received
           </button>
+          <button
+            onClick={() => setActiveTab('item-receipt')}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === 'item-receipt'
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+          >
+            <ClipboardList className="h-4 w-4" />
+            Item Receipt
+          </button>
         </div>
 
         {/* Content */}
         <div className="flex-1 space-y-4">
+
+          {/* ── Item Receipt view ── */}
+          {activeTab === 'item-receipt' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-semibold">Item Receipts</h3>
+                <Button className="gap-2 bg-amber-500 hover:bg-amber-600 text-white" onClick={() => setItemReceiptOpen(true)}>
+                  <Plus className="h-4 w-4" />
+                  New Item Receipt
+                </Button>
+              </div>
+              <Card>
+                <CardContent className="py-12 text-center text-muted-foreground text-sm">
+                  No item receipts yet.{' '}
+                  <button className="text-primary underline" onClick={() => setItemReceiptOpen(true)}>Create one</button>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab !== 'item-receipt' && <>
           {/* Sub-tabs */}
           <div className="flex gap-1 border-b dark:border-gray-700">
             {(['supplier', 'detailed'] as const).map(view => (
@@ -473,126 +605,432 @@ export default function PurchaseOrdersPage() {
               </CardContent>
             </Card>
           )}
+          </>}{/* end non-item-receipt */}
         </div>
       </div>
 
-      {/* Add New Purchase Dialog */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>New Purchase Order</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+      {/* Item Receipt Dialog */}
+      <Dialog open={itemReceiptOpen} onOpenChange={setItemReceiptOpen}>
+        <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto p-0">
+          <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700">
+            <DialogTitle className="text-lg font-semibold">Item receipt #{itemReceipt.receiptNo}</DialogTitle>
+          </div>
+          <div className="px-6 py-4 space-y-6">
+            {/* Header fields */}
+            <div className="grid grid-cols-3 gap-4">
               <div>
-                <Label>Supplier *</Label>
-                <Input
-                  value={newPo.supplier}
-                  onChange={(e) => setNewPo({ ...newPo, supplier: e.target.value })}
-                  placeholder="Supplier name"
-                />
+                <Label className="text-xs text-muted-foreground">Vendor</Label>
+                <Input value={itemReceipt.vendor} onChange={(e) => setItemReceipt({ ...itemReceipt, vendor: e.target.value })} placeholder="Choose a vendor" className="mt-1" />
               </div>
               <div>
-                <Label>Order Date</Label>
-                <Input
-                  type="date"
-                  value={newPo.orderDate}
-                  onChange={(e) => setNewPo({ ...newPo, orderDate: e.target.value })}
-                />
+                <Label className="text-xs text-muted-foreground">Date</Label>
+                <Input type="date" value={itemReceipt.date} onChange={(e) => setItemReceipt({ ...itemReceipt, date: e.target.value })} className="mt-1" />
               </div>
-            </div>
-            <div>
-              <Label>Notes (optional)</Label>
-              <Textarea
-                value={newPo.notes}
-                onChange={(e) => setNewPo({ ...newPo, notes: e.target.value })}
-                placeholder="Any additional notes"
-                rows={2}
-              />
+              <div>
+                <Label className="text-xs text-muted-foreground">Receipt no.</Label>
+                <Input value={itemReceipt.receiptNo} onChange={(e) => setItemReceipt({ ...itemReceipt, receiptNo: e.target.value })} className="mt-1" />
+              </div>
             </div>
 
+            {/* Item details table */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <Label>Items</Label>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 gap-1 text-xs"
-                  onClick={() => setNewPoItems([...newPoItems, { itemType: 'Component', itemName: '', itemCode: '', unitType: 'Each', qtyOrdered: 1 }])}
-                >
-                  <Plus className="h-3 w-3" />
-                  Add Line
-                </Button>
+              <h4 className="text-sm font-semibold mb-3">Item details</h4>
+              <div className="border dark:border-gray-700 rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground w-8">#</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">PRODUCT/SERVICE</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">SKU</th>
+                      <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground">RATE</th>
+                      <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground">QTY RECEIVED</th>
+                      <th className="w-16"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y dark:divide-gray-700">
+                    {itemReceiptLines.map((row, idx) => (
+                      <tr key={idx}>
+                        <td className="px-3 py-1 text-muted-foreground text-xs">{idx + 1}</td>
+                        <td className="px-2 py-1 min-w-[180px]">
+                          <Input value={row.product} onChange={(e) => { const u=[...itemReceiptLines]; u[idx]={...u[idx],product:e.target.value}; setItemReceiptLines(u) }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <Input value={row.sku} onChange={(e) => { const u=[...itemReceiptLines]; u[idx]={...u[idx],sku:e.target.value}; setItemReceiptLines(u) }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <Input value={row.rate} onChange={(e) => { const u=[...itemReceiptLines]; u[idx]={...u[idx],rate:e.target.value}; setItemReceiptLines(u) }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1 text-right" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <Input value={row.qtyReceived} onChange={(e) => { const u=[...itemReceiptLines]; u[idx]={...u[idx],qtyReceived:e.target.value}; setItemReceiptLines(u) }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1 text-right" />
+                        </td>
+                        <td className="px-1 flex items-center gap-1 py-1">
+                          <button onClick={() => setItemReceiptLines([...itemReceiptLines, { product: row.product, sku: row.sku, rate: row.rate, qtyReceived: '' }])} className="text-muted-foreground hover:text-foreground p-1">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                          </button>
+                          <button onClick={() => setItemReceiptLines(itemReceiptLines.filter((_,i)=>i!==idx))} className="text-muted-foreground hover:text-red-500 p-1">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="px-3 py-2 border-t dark:border-gray-700">
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setItemReceiptLines([...itemReceiptLines, { product:'', sku:'', rate:'', qtyReceived:'' }])}>
+                    Add lines
+                  </Button>
+                </div>
               </div>
-              <div className="space-y-2">
-                {newPoItems.map((item, idx) => (
-                  <div key={idx} className="grid grid-cols-6 gap-2 items-center">
-                    <Select
-                      value={item.itemType || 'Component'}
-                      onValueChange={(v) => {
-                        const updated = [...newPoItems]
-                        updated[idx] = { ...updated[idx], itemType: v }
-                        setNewPoItems(updated)
-                      }}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ITEM_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      className="col-span-2 h-8 text-xs"
-                      placeholder="Item Name *"
-                      value={item.itemName || ''}
-                      onChange={(e) => {
-                        const updated = [...newPoItems]
-                        updated[idx] = { ...updated[idx], itemName: e.target.value }
-                        setNewPoItems(updated)
-                      }}
-                    />
-                    <Input
-                      className="h-8 text-xs"
-                      placeholder="Code"
-                      value={item.itemCode || ''}
-                      onChange={(e) => {
-                        const updated = [...newPoItems]
-                        updated[idx] = { ...updated[idx], itemCode: e.target.value }
-                        setNewPoItems(updated)
-                      }}
-                    />
-                    <Input
-                      className="h-8 text-xs"
-                      type="number"
-                      placeholder="Qty"
-                      value={item.qtyOrdered || ''}
-                      onChange={(e) => {
-                        const updated = [...newPoItems]
-                        updated[idx] = { ...updated[idx], qtyOrdered: Number(e.target.value) || 1 }
-                        setNewPoItems(updated)
-                      }}
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => setNewPoItems(newPoItems.filter((_, i) => i !== idx))}
-                      disabled={newPoItems.length === 1}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                ))}
+            </div>
+
+            {/* Memo + Attachments */}
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <Label className="text-xs text-muted-foreground">Memo</Label>
+                <Textarea value={itemReceipt.memo} onChange={(e) => setItemReceipt({ ...itemReceipt, memo: e.target.value })} rows={4} className="mt-1 resize-none text-sm" />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Attachments</Label>
+                <div className="mt-1 border-2 border-dashed dark:border-gray-600 rounded-lg p-4 text-center cursor-pointer hover:bg-muted/30 transition-colors">
+                  <Input type="file" accept=".png,.jpg,.jpeg,.pdf,.xls,.xlsx" className="hidden" id="ir-attach" />
+                  <label htmlFor="ir-attach" className="cursor-pointer">
+                    <p className="text-xs text-blue-500 font-medium">Add attachment</p>
+                    <p className="text-xs text-muted-foreground mt-1">Max file size: 20 MB</p>
+                  </label>
+                </div>
+                <button className="mt-1 text-xs text-blue-500 hover:underline">Show existing</button>
               </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddPo} disabled={saving || !newPo.supplier.trim()}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create Order'}
-            </Button>
-          </DialogFooter>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between px-6 py-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+            <Button variant="outline" onClick={() => setItemReceiptOpen(false)}>Cancel</Button>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={() => setItemReceiptOpen(false)}>Save</Button>
+              <Button className="bg-amber-500 hover:bg-amber-600 text-white" onClick={() => setItemReceiptOpen(false)}>Save and close</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add New Purchase Order — QuickBooks style */}
+      <Dialog open={addOpen} onOpenChange={(v) => { if (!v) resetNewPo(); setAddOpen(v) }}>
+        <DialogContent className="w-[96vw] max-w-[1280px] max-h-[94vh] overflow-y-auto p-0">
+
+          {/* ── Title + Amount bar ── */}
+          <div className="flex items-center justify-between px-8 py-4 border-b dark:border-gray-700 bg-white dark:bg-gray-950 sticky top-0 z-10">
+            <DialogTitle className="text-xl font-bold tracking-tight">Purchase Order</DialogTitle>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">AMOUNT</span>
+              <span className="text-3xl font-bold tabular-nums">
+                ${newPoLineItems.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0).toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          {/* ── Top info band (light bg) ── */}
+          <div className="bg-gray-50 dark:bg-gray-900/60 border-b dark:border-gray-800 px-8 py-5">
+            {/* Row A: Vendor | Email | Status */}
+            <div className="grid grid-cols-[1fr_2fr_1fr] gap-5 items-end">
+              <div>
+                <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Vendor</Label>
+                <Input
+                  value={newPo.supplier}
+                  onChange={(e) => setNewPo({ ...newPo, supplier: e.target.value })}
+                  placeholder="Choose a vendor"
+                  className="bg-white dark:bg-gray-900"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <Label className="text-xs font-medium text-muted-foreground">Email</Label>
+                  <span className="text-xs text-blue-500 hover:underline cursor-pointer font-medium">Cc/Bcc</span>
+                </div>
+                <Input
+                  value={newPo.email}
+                  onChange={(e) => setNewPo({ ...newPo, email: e.target.value })}
+                  placeholder="Email (Separate emails with a comma)"
+                  className="bg-white dark:bg-gray-900"
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Purchase Order status</Label>
+                <Select value={newPo.poStatus} onValueChange={(v) => setNewPo({ ...newPo, poStatus: v })}>
+                  <SelectTrigger className="bg-white dark:bg-gray-900">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="OPEN">OPEN</SelectItem>
+                    <SelectItem value="CLOSED">CLOSED</SelectItem>
+                    <SelectItem value="PENDING">PENDING</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          <div className="px-8 py-6 space-y-6">
+            {/* ── Row B: Address / Ship-to / Dates / Location ── */}
+            <div className="grid grid-cols-12 gap-5">
+
+              {/* Mailing address */}
+              <div className="col-span-2">
+                <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Mailing address</Label>
+                <Textarea
+                  value={newPo.mailingAddress}
+                  onChange={(e) => setNewPo({ ...newPo, mailingAddress: e.target.value })}
+                  rows={5}
+                  className="text-sm resize-none"
+                />
+              </div>
+
+              {/* Ship to + Shipping address */}
+              <div className="col-span-3 space-y-3">
+                <div>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Ship to</Label>
+                  <Input
+                    value={newPo.shipTo}
+                    onChange={(e) => setNewPo({ ...newPo, shipTo: e.target.value })}
+                    placeholder="Select customer for address"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Shipping address</Label>
+                  <Textarea
+                    value={newPo.shippingAddress}
+                    onChange={(e) => setNewPo({ ...newPo, shippingAddress: e.target.value })}
+                    rows={3}
+                    className="text-sm resize-none"
+                  />
+                </div>
+              </div>
+
+              {/* PO date / Due date / Ship Via */}
+              <div className="col-span-4 grid grid-cols-2 gap-3 content-start">
+                <div>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Purchase Order date</Label>
+                  <Input type="date" value={newPo.orderDate} onChange={(e) => setNewPo({ ...newPo, orderDate: e.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Due date</Label>
+                  <Input type="date" value={newPo.dueDate} onChange={(e) => setNewPo({ ...newPo, dueDate: e.target.value })} />
+                </div>
+                <div className="col-span-2">
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Ship Via</Label>
+                  <Input value={newPo.shipVia} onChange={(e) => setNewPo({ ...newPo, shipVia: e.target.value })} />
+                </div>
+              </div>
+
+              {/* Location / Permit no. */}
+              <div className="col-span-3 space-y-3">
+                <div>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Location</Label>
+                  <Input value={newPo.location} onChange={(e) => setNewPo({ ...newPo, location: e.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Permit no.</Label>
+                  <Input value={newPo.permitNo} onChange={(e) => setNewPo({ ...newPo, permitNo: e.target.value })} />
+                </div>
+              </div>
+            </div>
+
+            {/* ── Row C: Side Mark / P.O. Number / Validity ── */}
+            <div className="grid grid-cols-3 gap-5 pt-1 border-t dark:border-gray-800">
+              <div className="pt-4">
+                <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Side Mark</Label>
+                <Input value={newPo.sideMark} onChange={(e) => setNewPo({ ...newPo, sideMark: e.target.value })} />
+              </div>
+              <div className="pt-4">
+                <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">P.O. Number</Label>
+                <Input value={newPo.poNumber} onChange={(e) => setNewPo({ ...newPo, poNumber: e.target.value })} />
+              </div>
+              <div className="pt-4">
+                <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Validity</Label>
+                <Input value={newPo.validity} onChange={(e) => setNewPo({ ...newPo, validity: e.target.value })} />
+              </div>
+            </div>
+
+            {/* Category details table */}
+            <div>
+              <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                <span className="w-1 h-4 bg-amber-500 rounded-full inline-block" />
+                Category details
+              </h4>
+              <div className="border dark:border-gray-700 rounded-xl overflow-hidden shadow-sm">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground w-8">#</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">CATEGORY</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">DESCRIPTION</th>
+                      <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground">AMOUNT</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">CUSTOMER</th>
+                      <th className="w-8"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y dark:divide-gray-700">
+                    {newPoCategories.map((row, idx) => (
+                      <tr key={idx}>
+                        <td className="px-3 py-1 text-muted-foreground text-xs">{idx + 1}</td>
+                        <td className="px-2 py-1">
+                          <Input value={row.category} onChange={(e) => { const u=[...newPoCategories]; u[idx]={...u[idx],category:e.target.value}; setNewPoCategories(u) }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <Input value={row.description} onChange={(e) => { const u=[...newPoCategories]; u[idx]={...u[idx],description:e.target.value}; setNewPoCategories(u) }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <Input value={row.amount} onChange={(e) => { const u=[...newPoCategories]; u[idx]={...u[idx],amount:e.target.value}; setNewPoCategories(u) }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1 text-right" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <Input value={row.customer} onChange={(e) => { const u=[...newPoCategories]; u[idx]={...u[idx],customer:e.target.value}; setNewPoCategories(u) }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1" />
+                        </td>
+                        <td className="px-1">
+                          <button onClick={() => setNewPoCategories(newPoCategories.filter((_,i)=>i!==idx))} className="text-muted-foreground hover:text-red-500 p-1"><Trash2 className="h-3 w-3" /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="flex items-center gap-2 px-3 py-2 border-t dark:border-gray-700">
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setNewPoCategories([...newPoCategories, { category:'', description:'', amount:'', customer:'' }])}>
+                    Add lines
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => setNewPoCategories([{ category:'', description:'', amount:'', customer:'' },{ category:'', description:'', amount:'', customer:'' }])}>
+                    Clear all lines
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Item details table */}
+            <div>
+              <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                <span className="w-1 h-4 bg-amber-500 rounded-full inline-block" />
+                Item details
+              </h4>
+              <div className="border dark:border-gray-700 rounded-xl overflow-hidden shadow-sm">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground w-8">#</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">PRODUCT/SERVICE</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">SKU</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">DESCRIPTION</th>
+                      <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground">QTY</th>
+                      <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground">RATE</th>
+                      <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground">AMOUNT</th>
+                      <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">CUSTOMER</th>
+                      <th className="w-8"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y dark:divide-gray-700">
+                    {newPoLineItems.map((row, idx) => (
+                      <tr key={idx}>
+                        <td className="px-3 py-1 text-muted-foreground text-xs">{idx + 1}</td>
+                        <td className="px-2 py-1 min-w-[140px]">
+                          <Input value={row.product} onChange={(e) => { const u=[...newPoLineItems]; u[idx]={...u[idx],product:e.target.value}; setNewPoLineItems(u) }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <Input value={row.sku} onChange={(e) => { const u=[...newPoLineItems]; u[idx]={...u[idx],sku:e.target.value}; setNewPoLineItems(u) }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1" />
+                        </td>
+                        <td className="px-2 py-1 min-w-[160px]">
+                          <Input value={row.description} onChange={(e) => { const u=[...newPoLineItems]; u[idx]={...u[idx],description:e.target.value}; setNewPoLineItems(u) }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <Input value={row.qty} onChange={(e) => { const u=[...newPoLineItems]; u[idx]={...u[idx],qty:e.target.value}; setNewPoLineItems(u) }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1 text-right" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <Input value={row.rate} onChange={(e) => {
+                            const u=[...newPoLineItems]
+                            const qty = parseFloat(u[idx].qty) || 0
+                            const rate = parseFloat(e.target.value) || 0
+                            u[idx]={...u[idx],rate:e.target.value,amount:(qty*rate).toFixed(2)}
+                            setNewPoLineItems(u)
+                          }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1 text-right" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <Input value={row.amount} readOnly className="h-7 text-xs border-0 shadow-none bg-transparent text-right font-medium" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <Input value={row.customer} onChange={(e) => { const u=[...newPoLineItems]; u[idx]={...u[idx],customer:e.target.value}; setNewPoLineItems(u) }} className="h-7 text-xs border-0 shadow-none focus-visible:ring-1" />
+                        </td>
+                        <td className="px-1">
+                          <button onClick={() => setNewPoLineItems(newPoLineItems.filter((_,i)=>i!==idx))} className="text-muted-foreground hover:text-red-500 p-1"><Trash2 className="h-3 w-3" /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="flex items-center justify-between px-3 py-2 border-t dark:border-gray-700">
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setNewPoLineItems([...newPoLineItems, { product:'', sku:'', description:'', qty:'', rate:'', amount:'', customer:'', itemType:'Component', itemId:'' }])}>
+                      Add lines
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => setNewPoLineItems([{ product:'',sku:'',description:'',qty:'',rate:'',amount:'',customer:'',itemType:'Component',itemId:'' },{ product:'',sku:'',description:'',qty:'',rate:'',amount:'',customer:'',itemType:'Component',itemId:'' }])}>
+                      Clear all lines
+                    </Button>
+                  </div>
+                  <span className="text-sm font-semibold">
+                    Total&nbsp;&nbsp;${newPoLineItems.reduce((s,r)=>s+(parseFloat(r.amount)||0),0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Message / Memo / Attachments */}
+            <div className="grid grid-cols-3 gap-5 pt-4 border-t dark:border-gray-800">
+              <div>
+                <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Your message to vendor</Label>
+                <Textarea
+                  value={newPo.messageToVendor}
+                  onChange={(e) => setNewPo({ ...newPo, messageToVendor: e.target.value })}
+                  rows={4}
+                  className="text-sm resize-none"
+                  placeholder="Optional message to vendor…"
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Memo</Label>
+                <Textarea
+                  value={newPo.memo}
+                  onChange={(e) => setNewPo({ ...newPo, memo: e.target.value })}
+                  rows={4}
+                  className="text-sm resize-none"
+                  placeholder="Internal memo…"
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Attachments</Label>
+                <div className="border-2 border-dashed dark:border-gray-700 rounded-xl p-5 text-center cursor-pointer hover:bg-muted/20 transition-colors">
+                  <Input type="file" accept=".png,.jpg,.jpeg,.pdf,.xls,.xlsx" className="hidden" id="po-attach" multiple />
+                  <label htmlFor="po-attach" className="cursor-pointer space-y-1.5 block">
+                    <div className="h-8 w-8 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center mx-auto">
+                      <Plus className="h-4 w-4 text-blue-500" />
+                    </div>
+                    <p className="text-xs text-blue-500 font-semibold">Add attachment</p>
+                    <p className="text-xs text-muted-foreground">Max file size: 20 MB</p>
+                  </label>
+                </div>
+                <button className="mt-2 text-xs text-blue-500 hover:underline block">Show existing</button>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer action bar */}
+          <div className="flex items-center justify-between px-8 py-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900 sticky bottom-0">
+            <Button variant="outline" onClick={() => { resetNewPo(); setAddOpen(false) }}>Cancel</Button>
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" className="text-sm text-muted-foreground hover:text-foreground">Print</Button>
+              <Button variant="ghost" className="text-sm text-muted-foreground hover:text-foreground">Make recurring</Button>
+              <Button variant="outline" onClick={handleAddPo} disabled={saving || !newPo.supplier.trim()} className="min-w-[70px]">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
+              </Button>
+              <Button className="bg-amber-500 hover:bg-amber-600 text-white min-w-[120px]" onClick={handleAddPo} disabled={saving || !newPo.supplier.trim()}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save and close'}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

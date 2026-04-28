@@ -54,7 +54,7 @@ export function EventModal({
   initialDate = new Date(),
   mode = 'create' 
 }: EventModalProps) {
-  const [eventType, setEventType] = useState('')
+  const [eventType, setEventType] = useState('' 
   const [startDate, setStartDate] = useState<Date>(initialDate)
   const [endDate, setEndDate] = useState<Date>(initialDate)
   const [allDay, setAllDay] = useState(false)

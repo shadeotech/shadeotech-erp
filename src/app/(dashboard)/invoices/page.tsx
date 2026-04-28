@@ -436,7 +436,15 @@ export default function InvoicesPage() {
                           <span className="text-xs font-semibold text-foreground">{inv.invoiceNumber}</span>
                           <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">{formatCurrency(inv.totalAmount)}</span>
                         </div>
-                        <p className="text-xs text-muted-foreground truncate">{inv.customerName}</p>
+                        {inv.customerId ? (
+                          <Link href={`/customers/${inv.customerId}`}
+                            className="text-xs text-muted-foreground hover:text-amber-600 dark:hover:text-amber-400 truncate block hover:underline"
+                            onClick={(e) => e.stopPropagation()}>
+                            {inv.customerName}
+                          </Link>
+                        ) : (
+                          <p className="text-xs text-muted-foreground truncate">{inv.customerName}</p>
+                        )}
                         {inv.dueDate && (
                           <p className="text-[10px] text-muted-foreground">Due {format(new Date(inv.dueDate), 'MMM d, yyyy')}</p>
                         )}
@@ -548,8 +556,15 @@ export default function InvoicesPage() {
                       </Link>
                     </TableCell>
                     <TableCell>
-                      <div>{invoice.customerName}</div>
-                      <div className="text-xs text-muted-foreground">{invoice.sideMark}</div>
+                      {invoice.customerId ? (
+                        <Link href={`/customers/${invoice.customerId}`}
+                          className="font-medium text-gray-900 dark:text-white hover:text-amber-600 dark:hover:text-amber-400 transition-colors hover:underline underline-offset-2">
+                          {invoice.customerName}
+                        </Link>
+                      ) : (
+                        <span className="font-medium">{invoice.customerName}</span>
+                      )}
+                      {invoice.sideMark && <div className="text-xs text-muted-foreground font-mono">{invoice.sideMark}</div>}
                     </TableCell>
                     <TableCell>{renderStatusBadge(invoice.status)}</TableCell>
                     <TableCell>{formatCurrency(invoice.totalAmount)}</TableCell>

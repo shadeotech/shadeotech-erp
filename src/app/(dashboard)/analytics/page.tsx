@@ -380,6 +380,7 @@ export default function AnalyticsPage() {
         <TabsList className="h-9">
           <TabsTrigger value="overview" className="text-xs gap-1.5"><Activity className="h-3.5 w-3.5" />Overview</TabsTrigger>
           <TabsTrigger value="sales" className="text-xs gap-1.5"><BarChart3 className="h-3.5 w-3.5" />Sales</TabsTrigger>
+          <TabsTrigger value="products" className="text-xs gap-1.5"><PieChart className="h-3.5 w-3.5" />Products</TabsTrigger>
           <TabsTrigger value="customers" className="text-xs gap-1.5"><Users className="h-3.5 w-3.5" />Customers</TabsTrigger>
           <TabsTrigger value="finance" className="text-xs gap-1.5"><DollarSign className="h-3.5 w-3.5" />Finance</TabsTrigger>
           <TabsTrigger value="alerts" className="text-xs gap-1.5 relative">
@@ -506,6 +507,133 @@ export default function AnalyticsPage() {
                     )
                   })}
                 </tbody>
+              </table>
+            </div>
+          </ChartCard>
+        </TabsContent>
+
+        {/* ── PRODUCTS TAB ── */}
+        <TabsContent value="products" className="space-y-4 mt-4">
+          {/* KPI row */}
+          <div className="grid sm:grid-cols-3 gap-3">
+            <KpiCard icon={BarChart3} label="Product Types" value={String(data.topProducts.length)} sub="Distinct product categories" color="amber" />
+            <KpiCard icon={TrendingUp} label="Best Seller" value={data.topProducts[0]?.name ?? '—'} sub={data.topProducts[0] ? `${data.topProducts[0].count} units sold` : undefined} color="green" />
+            <KpiCard icon={DollarSign} label="Top Revenue Product" value={data.topProducts.slice().sort((a,b)=>b.revenue-a.revenue)[0]?.name ?? '—'} sub={data.topProducts[0] ? fmtCurrency(data.topProducts.slice().sort((a,b)=>b.revenue-a.revenue)[0]?.revenue ?? 0) : undefined} color="purple" />
+          </div>
+
+          {/* Bar chart by type */}
+          <ChartCard title="Units Sold by Product Type" sub="All non-draft quotes, ranked by quantity">
+            <div className="h-72">
+              <Bar
+                data={{
+                  labels: data.topProducts.map(p => p.name),
+                  datasets: [{
+                    label: 'Units Sold',
+                    data: data.topProducts.map(p => p.count),
+                    backgroundColor: [
+                      'rgba(217,119,6,0.8)', 'rgba(251,191,36,0.8)', 'rgba(245,158,11,0.8)',
+                      'rgba(180,83,9,0.8)', 'rgba(146,64,14,0.8)', 'rgba(92,45,145,0.8)',
+                      'rgba(59,130,246,0.8)', 'rgba(16,185,129,0.8)',
+                    ],
+                    borderRadius: 6,
+                  }],
+                }}
+                options={{
+                  ...barOpts(undefined, true),
+                  indexAxis: 'y',
+                  scales: {
+                    x: { grid: { color: '#f3f4f6' }, ticks: { font: { size: 10 } } },
+                    y: { grid: { display: false }, ticks: { font: { size: 11 } } },
+                  },
+                }}
+              />
+            </div>
+          </ChartCard>
+
+          {/* Revenue by type chart */}
+          <ChartCard title="Revenue by Product Type" sub="Estimated revenue contribution per type">
+            <div className="h-64">
+              <Bar
+                data={{
+                  labels: data.topProducts.slice().sort((a,b) => b.revenue - a.revenue).map(p => p.name),
+                  datasets: [{
+                    label: 'Est. Revenue ($)',
+                    data: data.topProducts.slice().sort((a,b) => b.revenue - a.revenue).map(p => p.revenue),
+                    backgroundColor: 'rgba(59,130,246,0.75)',
+                    borderColor: '#3b82f6',
+                    borderWidth: 1,
+                    borderRadius: 5,
+                  }],
+                }}
+                options={{
+                  ...barOpts((v: any) => fmtCurrency(v), true),
+                  indexAxis: 'y',
+                  scales: {
+                    x: { grid: { color: '#f3f4f6' }, ticks: { font: { size: 10 }, callback: (v: any) => fmtCurrency(v) } },
+                    y: { grid: { display: false }, ticks: { font: { size: 11 } } },
+                  },
+                }}
+              />
+            </div>
+          </ChartCard>
+
+          {/* Detailed table */}
+          <ChartCard title="Full Product Type Report" sub="Units sold, revenue, and market share per type">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 text-xs font-medium text-muted-foreground">#</th>
+                    <th className="text-left py-2 text-xs font-medium text-muted-foreground">Product Type</th>
+                    <th className="text-right py-2 text-xs font-medium text-muted-foreground">Units Sold</th>
+                    <th className="text-right py-2 text-xs font-medium text-muted-foreground">Est. Revenue</th>
+                    <th className="text-right py-2 text-xs font-medium text-muted-foreground">Avg / Unit</th>
+                    <th className="py-2 w-36 text-xs font-medium text-muted-foreground">Unit Share</th>
+                    <th className="py-2 w-36 text-xs font-medium text-muted-foreground">Revenue Share</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {data.topProducts.slice().sort((a,b) => b.revenue - a.revenue).map((p, i) => {
+                    const totalUnits = data.topProducts.reduce((s,x) => s + x.count, 0)
+                    const totalRev = data.topProducts.reduce((s,x) => s + x.revenue, 0)
+                    const unitPct = totalUnits > 0 ? (p.count / totalUnits) * 100 : 0
+                    const revPct = totalRev > 0 ? (p.revenue / totalRev) * 100 : 0
+                    const avgUnit = p.count > 0 ? p.revenue / p.count : 0
+                    return (
+                      <tr key={p.name} className="hover:bg-muted/30">
+                        <td className="py-2.5 text-muted-foreground text-xs">{i + 1}</td>
+                        <td className="py-2.5 font-medium">{p.name}</td>
+                        <td className="py-2.5 text-right tabular-nums">{p.count.toLocaleString()}</td>
+                        <td className="py-2.5 text-right tabular-nums font-medium text-amber-700">{fmtCurrency(p.revenue)}</td>
+                        <td className="py-2.5 text-right tabular-nums text-muted-foreground">{fmtCurrency(avgUnit)}</td>
+                        <td className="py-2.5 pl-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                              <div className="h-full rounded-full bg-amber-400" style={{ width: `${unitPct}%` }} />
+                            </div>
+                            <span className="text-xs text-muted-foreground w-8 text-right">{Math.round(unitPct)}%</span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 pl-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                              <div className="h-full rounded-full bg-blue-400" style={{ width: `${revPct}%` }} />
+                            </div>
+                            <span className="text-xs text-muted-foreground w-8 text-right">{Math.round(revPct)}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot className="border-t bg-muted/20">
+                  <tr>
+                    <td colSpan={2} className="py-2.5 font-semibold text-xs">Total</td>
+                    <td className="py-2.5 text-right tabular-nums font-semibold text-xs">{data.topProducts.reduce((s,p) => s + p.count, 0).toLocaleString()}</td>
+                    <td className="py-2.5 text-right tabular-nums font-semibold text-amber-700 text-xs">{fmtCurrency(data.topProducts.reduce((s,p) => s + p.revenue, 0))}</td>
+                    <td colSpan={3} />
+                  </tr>
+                </tfoot>
               </table>
             </div>
           </ChartCard>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { format } from 'date-fns'
@@ -66,9 +66,12 @@ import SignatureCanvas from 'react-signature-canvas'
 import type { ProductionStatus, ProductionOrder, ProductionOrderItem } from '@/types/production'
 import { useAuthStore } from '@/stores/authStore'
 import { getImagePath } from '@/constants/fabrics'
+import { SCAN_STATIONS, STAGE_LABELS, QC_CHECKLIST } from '@/constants/productionStages'
 import { useToast } from '@/components/ui/use-toast'
 import { decimalToFraction, computeTriShadeRow } from '@/lib/productionSheetCalc'
+import { autoSelectTemplate, parseDim, fmtDim, computeCol, getTemplateByKey, SHEET_TEMPLATES } from '@/lib/productionSheetTemplates'
 import ProductionSheetsTab from '@/components/production/ProductionSheetsTab'
+import { WorkshopScanBar } from '@/components/production/WorkshopScanBar'
 
 const statusLabels: Record<ProductionStatus, string> = {
   PENDING_APPROVAL: 'Pending Approval',
@@ -120,7 +123,7 @@ export default function ProductionOrderDetailPage() {
   const [notes, setNotes] = useState('')
   const [newNote, setNewNote] = useState('')
   const [cutPieces, setCutPieces] = useState<Array<{ fabric: string; width: number; length: number }>>([])
-  const [bomItems, setBomItems] = useState<Array<{ supplyId: string; supplyName: string; quantity: number; unit: string; availableQuantity?: number }>>([])
+  const [bomItems, setBomItems] = useState<Array<{ supplyId: string; supplyName: string; sku: string; description: string; productRef: string; quantity: number; unit: string; availableQuantity?: number }>>([])
   const [shippingBoxes, setShippingBoxes] = useState<Array<{ width: number; length: number; height: number; weight: number; savedAt?: Date }>>([])
   const [trackingNumber, setTrackingNumber] = useState('')
   const [airwayBillNumber, setAirwayBillNumber] = useState('')
@@ -134,6 +137,12 @@ export default function ProductionOrderDetailPage() {
   const [deliveryMethod, setDeliveryMethod] = useState<'INSTALLATION' | 'PICKUP' | 'SHIPPING'>('INSTALLATION')
   const [activeTab, setActiveTab] = useState('overview')
   const { toast } = useToast()
+
+  // Workshop tab state
+  const [workshopStation, setWorkshopStation] = useState(SCAN_STATIONS[0].id)
+  const [workshopCompleting, setWorkshopCompleting] = useState(false)
+  const [workshopInnerTab, setWorkshopInnerTab] = useState<'manufacturing' | 'activities'>('manufacturing')
+  const [workshopQCChecks, setWorkshopQCChecks] = useState<boolean[]>(QC_CHECKLIST.map(() => false))
 
   // Notes filters
   const [noteSearch, setNoteSearch] = useState('')
@@ -189,13 +198,13 @@ export default function ProductionOrderDetailPage() {
     }).catch(() => setInventoryItems([]))
   }, [token])
 
-  const fetchOrder = useCallback(async () => {
+  const fetchOrder = useCallback(async (silent = false) => {
     if (!token || !orderId) {
-      setLoading(false)
+      if (!silent) setLoading(false)
       return
     }
     try {
-      setLoading(true)
+      if (!silent) setLoading(true)
       setError(null)
       const res = await fetch(`/api/orders/${orderId}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -242,6 +251,9 @@ export default function ProductionOrderDetailPage() {
       setBomItems((raw.bom || []).map((b: any) => ({
         supplyId: b._id || '',
         supplyName: b.supplyName || '',
+        sku: b.sku || '',
+        description: b.description || '',
+        productRef: b.productRef || '',
         quantity: b.quantity || 0,
         unit: b.unit || 'pieces',
         availableQuantity: undefined,
@@ -254,16 +266,32 @@ export default function ProductionOrderDetailPage() {
         savedAt: undefined,
       })))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load order')
-      setOrder(null)
+      if (!silent) {
+        setError(e instanceof Error ? e.message : 'Failed to load order')
+        setOrder(null)
+      }
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [token, orderId])
 
   useEffect(() => {
     fetchOrder()
   }, [fetchOrder])
+
+  // Auto-switch to Workshop tab + pre-select item when opened via QR link
+  useEffect(() => {
+    if (!order) return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('workshop') === '1') {
+      setActiveTab('workshop')
+      const itemParam = params.get('item')
+      if (itemParam) {
+        const found = order.items.find(i => i._id === itemParam)
+        if (found) setSelectedItem(found._id)
+      }
+    }
+  }, [order])
 
   const addCutPiece = () => {
     setCutPieces([...cutPieces, { fabric: '', width: 0, length: 0 }])
@@ -273,8 +301,32 @@ export default function ProductionOrderDetailPage() {
     setCutPieces(cutPieces.filter((_, i) => i !== index))
   }
 
-  const addBOMItem = () => {
-    setBomItems([...bomItems, { supplyId: '', supplyName: '', quantity: 0, unit: '', availableQuantity: 0 }])
+  const addBOMItem = (productRef = '') => {
+    setBomItems([...bomItems, { supplyId: '', supplyName: '', sku: '', description: '', productRef, quantity: 1, unit: 'pcs', availableQuantity: 0 }])
+  }
+
+  const autoPopulateBOM = () => {
+    if (!order) return
+    const rows: typeof bomItems = []
+    order.items.forEach((item, idx) => {
+      const ref = `Shade ${idx + 1}${item.area ? ' — ' + item.area : ''}`
+      const push = (name: string, desc: string, qty = 1, unit = 'pcs') => {
+        if (name) rows.push({ supplyId: '', supplyName: name, sku: '', description: desc, productRef: ref, quantity: qty, unit, availableQuantity: 0 })
+      }
+      if (item.fabric) push(item.fabric, 'Fabric', item.qty || 1, 'roll')
+      if (item.cassetteTypeColor) push(item.cassetteTypeColor, 'Cassette')
+      if (item.bottomRail) push(item.bottomRail, 'Bottom Rail')
+      if (item.brackets) push(item.brackets, 'Brackets', 2)
+      if (item.operation === 'MOTORIZED') {
+        if (item.motor) push(item.motor, 'Motor')
+        push('Charger', 'Motor Charger')
+        if (item.remoteControl) push(item.remoteControl, 'Remote Control')
+        if (item.smartAccessoriesType) push(item.smartAccessoriesType, 'Smart Hub')
+      } else {
+        if (item.cordChain) push(item.cordChain, 'Cord / Chain')
+      }
+    })
+    setBomItems(rows)
   }
 
   const handleBOMItemSelect = (index: number, supplyId: string) => {
@@ -335,7 +387,7 @@ export default function ProductionOrderDetailPage() {
     if (!token || !order) return
     setSaving('bom')
     try {
-      const validBom = bomItems.filter(b => b.supplyName?.trim()).map(b => ({ supplyName: b.supplyName.trim(), quantity: b.quantity, unit: b.unit || 'pieces' }))
+      const validBom = bomItems.filter(b => b.supplyName?.trim()).map(b => ({ supplyName: b.supplyName.trim(), sku: b.sku || '', description: b.description || '', productRef: b.productRef || '', quantity: b.quantity, unit: b.unit || 'pcs' }))
       const res = await fetch(`/api/orders/${orderId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -348,6 +400,73 @@ export default function ProductionOrderDetailPage() {
       setError(e instanceof Error ? e.message : 'Failed to save BOM')
     } finally {
       setSaving(null)
+    }
+  }
+
+  const handleMarkStageComplete = async (itemId: string) => {
+    if (!token || !order) return
+    const item = order.items.find(i => i._id === itemId)
+    if (!item) return
+    const station = SCAN_STATIONS.find(s => s.id === workshopStation)
+    if (!station) return
+    if (station.id === 'qc' && !workshopQCChecks.every(Boolean)) {
+      toast({ title: 'QC incomplete', description: 'All QC checklist items must be checked before completing this stage.', variant: 'destructive' })
+      return
+    }
+    const mfgDate = new Date().toLocaleDateString('en-GB').split('/').reverse().join('-').replace(/\//g, '-')
+    const qrCode = [
+      `ID:MANUAL`,
+      `ORDER:${order.orderNumber}`,
+      `ITEM_ID:${item._id}`,
+      `CUSTOMER:${order.customerName}`,
+      `AREA:${item.area || '—'}`,
+      `SIZE:${item.width}x${item.length}`,
+      `PRODUCT:${item.product}`,
+      `FABRIC:${item.fabric || '—'}`,
+      `MOUNT:${item.mount || '—'}`,
+      `OP:${item.operation || 'MANUAL'}`,
+      `MFG:${mfgDate}`,
+    ].join('\n')
+    setWorkshopCompleting(true)
+    try {
+      const res = await fetch('/api/production/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ qrCode, stationId: station.id, action: 'complete', qcPassed: workshopQCChecks.every(Boolean) }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to complete stage')
+      // Optimistic update — patch the item in local state immediately so the badge
+      // and button reflect the new stage without waiting for the full refetch
+      setOrder(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          status: station.stage as any,
+          items: prev.items.map(i => {
+            if (i._id !== itemId) return i
+            const prevStages = (i as any).itemStages || []
+            return {
+              ...i,
+              currentItemStage: station.stage,
+              itemStages: [...prevStages, {
+                stage: station.stage,
+                completedAt: new Date().toISOString(),
+                stationId: station.id,
+                completedByName: '',
+              }],
+            }
+          }),
+        }
+      })
+      setWorkshopQCChecks(QC_CHECKLIST.map(() => false))
+      toast({ title: `${station.label} completed`, description: `Item "${item.area || item.product}" marked as done.`, variant: 'default' })
+      // Background refresh to sync server state (silent = no loading spinner)
+      fetchOrder(true)
+    } catch (e) {
+      toast({ title: 'Error', description: e instanceof Error ? e.message : 'Failed to complete stage', variant: 'destructive' })
+    } finally {
+      setWorkshopCompleting(false)
     }
   }
 
@@ -616,6 +735,8 @@ export default function ProductionOrderDetailPage() {
       done: item.checklistDone,
     }))
     const addOns = (quoteData?.addOns || []).filter((a: any) => a.name)
+    const totalChargers = order.items.filter(i => i.operation === 'MOTORIZED').reduce((s, i) => s + (i.qty || 1), 0)
+    const totalSmartHubs = order.items.filter(i => i.operation === 'MOTORIZED' && (i.smartAccessoriesType || (i.smartAccessories || '').toLowerCase().includes('hub'))).reduce((s, i) => s + (i.qty || 1), 0)
     const itemRowsHtml = allItems.map((item, i) => `
       <tr style="background:${i % 2 === 0 ? '#fff' : '#f9fafb'}">
         <td style="padding:8px 10px;border-bottom:1px solid #e5e7eb"><input type="checkbox" ${item.done ? 'checked' : ''} style="width:15px;height:15px;accent-color:#f59e0b" /></td>
@@ -638,6 +759,10 @@ export default function ProductionOrderDetailPage() {
           <td style="padding:8px 10px;border-bottom:1px solid #fde68a;color:#9ca3af">○</td>
         </tr>`).join('')
       : ''
+    const accessoryRowsHtml = [
+      totalChargers > 0 ? `<tr style="background:#fff7ed"><td style="padding:8px 10px;border-bottom:1px solid #fed7aa"><input type="checkbox" style="width:15px;height:15px;accent-color:#ea580c" /></td><td style="padding:8px 10px;border-bottom:1px solid #fed7aa;color:#c2410c;font-weight:600">⚡</td><td colspan="8" style="padding:8px 10px;border-bottom:1px solid #fed7aa;font-weight:600;color:#9a3412">Charger <span style="background:#ea580c;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;margin-left:6px">${totalChargers}</span></td><td style="padding:8px 10px;border-bottom:1px solid #fed7aa;color:#9ca3af">○</td></tr>` : '',
+      totalSmartHubs > 0 ? `<tr style="background:#f0fdf4"><td style="padding:8px 10px;border-bottom:1px solid #bbf7d0"><input type="checkbox" style="width:15px;height:15px;accent-color:#16a34a" /></td><td style="padding:8px 10px;border-bottom:1px solid #bbf7d0;color:#15803d;font-weight:600">🔗</td><td colspan="8" style="padding:8px 10px;border-bottom:1px solid #bbf7d0;font-weight:600;color:#14532d">Smart Hub <span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;margin-left:6px">${totalSmartHubs}</span></td><td style="padding:8px 10px;border-bottom:1px solid #bbf7d0;color:#9ca3af">○</td></tr>` : '',
+    ].filter(Boolean).join('')
     const totalItems = allItems.reduce((s, i) => s + i.qty, 0)
     const doneItems = allItems.filter(i => i.done).reduce((s, i) => s + i.qty, 0)
     const printTrigger = autoPrint ? `<script>window.onload=function(){window.print()}<\/script>` : ''
@@ -680,11 +805,13 @@ export default function ProductionOrderDetailPage() {
     <div class="meta-item"><div class="label">Order Date</div><div class="value">${new Date(order.orderDate).toLocaleDateString()}</div></div>
     ${order.installationDate ? `<div class="meta-item"><div class="label">Install Date</div><div class="value">${new Date(order.installationDate).toLocaleDateString()}</div></div>` : ''}
     <div class="meta-item"><div class="label">Status</div><div class="value">${statusLabels[order.status]}</div></div>
-    <div class="meta-item"><div class="label">Total Items</div><div class="value">${totalItems}</div></div>
+    <div class="meta-item"><div class="label">Total # of Shades</div><div class="value">${totalItems}</div></div>
+    ${totalChargers > 0 ? `<div class="meta-item"><div class="label">Chargers</div><div class="value" style="color:#ea580c">${totalChargers}</div></div>` : ''}
+    ${totalSmartHubs > 0 ? `<div class="meta-item"><div class="label">Smart Hubs</div><div class="value" style="color:#16a34a">${totalSmartHubs}</div></div>` : ''}
     <div class="meta-item"><div class="label">Completed</div><div class="value" style="color:${doneItems===totalItems?'#10b981':'#f59e0b'}">${doneItems} / ${totalItems}</div></div>
   </div>
 </div>
-<div class="progress-label">${doneItems} of ${totalItems} items checked</div>
+<div class="progress-label">${doneItems} of ${totalItems} shades checked</div>
 <div class="progress-bar"><div class="progress-fill"></div></div>
 <table>
   <thead><tr>
@@ -700,7 +827,7 @@ export default function ProductionOrderDetailPage() {
     <th style="width:90px">Operation</th>
     <th class="center" style="width:40px">Done</th>
   </tr></thead>
-  <tbody>${itemRowsHtml}${addOnsRowsHtml}</tbody>
+  <tbody>${itemRowsHtml}${addOnsRowsHtml}${accessoryRowsHtml}</tbody>
 </table>
 <div class="footer">
   <div class="summary">Generated ${new Date().toLocaleString()} · ${order.orderNumber}</div>
@@ -821,6 +948,16 @@ export default function ProductionOrderDetailPage() {
     }
     return productLabel(item.product)
   }
+  const withShade = (name: string) => {
+    const n = name.trim()
+    return n.toLowerCase().endsWith(' shade') ? n : `${n} Shade`
+  }
+  // Expand items with qty > 1 into individual label entries
+  const expandedLabelItems = order.items.flatMap((item) => {
+    const qty = item.qty || 1
+    return Array.from({ length: qty }, (_, q) => ({ item, copyNum: q + 1, totalCopies: qty }))
+  })
+  const totalLabels = expandedLabelItems.length
 
   // Grouped checklist by product type
   const checklistGroups: Record<string, typeof order.items> = {}
@@ -1172,133 +1309,336 @@ export default function ProductionOrderDetailPage() {
 
         {/* Workshop Tab */}
         <TabsContent value="workshop">
-          <div className="grid gap-4 lg:grid-cols-3">
-            {/* Left: Items list */}
-            <Card className="lg:col-span-1">
-              <CardHeader>
-                <CardTitle>Order Items</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {order.items.map((item, idx) => (
-                    <div
-                      key={item._id}
-                      onClick={() => setSelectedItem(selectedItem === item._id ? null : item._id)}
-                      className={`cursor-pointer rounded-lg border p-3 transition-colors ${
-                        selectedItem === item._id
-                          ? 'border-l-4 border-l-cyan-500 border-cyan-200 dark:border-cyan-800 bg-cyan-50 dark:bg-cyan-900/20'
-                          : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+          <div className="flex gap-4 min-h-[600px]">
+            {/* Left panel — items list */}
+            <div className="w-52 flex-shrink-0 flex flex-col gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 px-1 mb-1">Order Items — click to select</p>
+              {order.items.map((item, idx) => {
+                const stage = (item as any).currentItemStage
+                const stationDef = SCAN_STATIONS.find(s => s.stage === stage)
+                const isSelected = selectedItem === item._id
+                return (
+                  <button
+                    key={item._id}
+                    onClick={() => setSelectedItem(isSelected ? null : item._id)}
+                    className={`w-full text-left rounded-lg border px-3 py-2.5 transition-all ${
+                      isSelected
+                        ? 'border-amber-400 bg-amber-50 dark:bg-amber-900/20 shadow-sm'
+                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-semibold text-gray-800 dark:text-white">
+                        {idx + 1}. {item.area || `Item ${idx + 1}`}
+                      </span>
+                      {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />}
+                    </div>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{item.product}</p>
+                    <p className="text-[11px] text-gray-400">{item.width} × {item.length}</p>
+                    {stage ? (
+                      <span
+                        className="mt-1.5 inline-block text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+                        style={{ backgroundColor: stationDef ? stationDef.color + '22' : '#e5e7eb', color: stationDef ? stationDef.color : '#6b7280' }}
+                      >
+                        {stationDef?.icon} {STAGE_LABELS[stage] || stage}
+                      </span>
+                    ) : (
+                      <span className="mt-1.5 inline-block text-[10px] text-gray-400 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full">Not started</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Center panel */}
+            <div className="flex-1 flex flex-col gap-3 min-w-0">
+              {/* Station + Scan bar */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-4">
+
+                {/* Row 1: station selector + selected item summary + QR + complete button */}
+                <div className="flex flex-wrap items-start gap-4">
+                  {/* Station selector */}
+                  <div className="flex-shrink-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">Station</p>
+                    <Select value={workshopStation} onValueChange={setWorkshopStation}>
+                      <SelectTrigger className="w-48 h-9 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SCAN_STATIONS.map(s => (
+                          <SelectItem key={s.id} value={s.id}>
+                            <span className="flex items-center gap-2">
+                              <span>{s.icon}</span>
+                              <span>{s.label}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Selected item summary */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">Selected Item</p>
+                    {selectedItem ? (() => {
+                      const item = order.items.find(i => i._id === selectedItem)
+                      if (!item) return null
+                      return (
+                        <div className="flex items-center gap-2 h-9">
+                          <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+                          <span className="text-sm font-medium text-gray-800 dark:text-white truncate">
+                            {item.area || item.product} — {item.width} × {item.length}
+                          </span>
+                        </div>
+                      )
+                    })() : (
+                      <p className="text-sm text-gray-400 h-9 flex items-center">
+                        Scan a label or select an item from the list →
+                      </p>
+                    )}
+                  </div>
+
+                  {/* QR code (shown when item selected) */}
+                  {selectedItem && (() => {
+                    const item = order.items.find(i => i._id === selectedItem)
+                    if (!item) return null
+                    const qrData = `${typeof window !== 'undefined' ? window.location.origin : ''}/production/orders/${orderId}?workshop=1&item=${item._id}`
+                    return (
+                      <div className="flex-shrink-0 flex flex-col items-center">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">QR</p>
+                        <div className="bg-white border border-gray-200 rounded p-1">
+                          <QRCode value={qrData} size={40} />
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* Mark complete button */}
+                  {(() => {
+                    const activeStation = SCAN_STATIONS.find(s => s.id === workshopStation)
+                    const selItem = selectedItem ? order.items.find(i => i._id === selectedItem) : null
+                    const alreadyDone = selItem
+                      ? ((selItem as any).itemStages || []).some((s: any) => s.stage === activeStation?.stage)
+                      : false
+                    const noItem = !selectedItem
+                    const btnBg = noItem ? '#e5e7eb'
+                      : alreadyDone ? '#d1fae5'
+                      : '#c49a6c'
+                    const btnColor = noItem ? '#9ca3af' : alreadyDone ? '#065f46' : '#fff'
+                    return (
+                      <div className="flex-shrink-0 flex flex-col justify-end">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">&nbsp;</p>
+                        <Button
+                          size="sm"
+                          disabled={noItem || workshopCompleting || alreadyDone}
+                          onClick={() => selectedItem && handleMarkStageComplete(selectedItem)}
+                          className="h-9 px-4 text-xs font-semibold gap-1.5"
+                          style={{ backgroundColor: btnBg, color: btnColor, border: 'none', cursor: (noItem || alreadyDone) ? 'not-allowed' : undefined }}
+                        >
+                          {workshopCompleting ? (
+                            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>
+                          ) : alreadyDone ? (
+                            <><CheckCircle2 className="h-3.5 w-3.5" /> Already Completed</>
+                          ) : noItem ? (
+                            <>Select an item first</>
+                          ) : (
+                            <><Check className="h-3.5 w-3.5" /> Mark as Completed</>
+                          )}
+                        </Button>
+                      </div>
+                    )
+                  })()}
+                </div>
+
+                {/* Row 2: scan bar (keyboard + camera) */}
+                <WorkshopScanBar
+                  orderNumber={order.orderNumber}
+                  items={order.items.map(i => ({ _id: i._id, area: i.area, product: i.product }))}
+                  active={activeTab === 'workshop'}
+                  onItemSelected={(itemId) => {
+                    setSelectedItem(itemId)
+                    setWorkshopInnerTab('manufacturing')
+                  }}
+                />
+
+                {/* QC checklist — only shown when QC station selected */}
+                {workshopStation === 'qc' && (
+                  <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+                    <p className="text-xs font-semibold text-gray-700 dark:text-white mb-2">QC Checklist — all must pass</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {QC_CHECKLIST.map((item, i) => (
+                        <label key={i} className="flex items-center gap-2 cursor-pointer group">
+                          <Checkbox
+                            checked={workshopQCChecks[i]}
+                            onCheckedChange={(v) => {
+                              const next = [...workshopQCChecks]
+                              next[i] = !!v
+                              setWorkshopQCChecks(next)
+                            }}
+                          />
+                          <span className={`text-xs ${workshopQCChecks[i] ? 'text-green-600 dark:text-green-400 line-through' : 'text-gray-600 dark:text-gray-300'}`}>
+                            {item}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Inner tabs: Manufacturing | Activities */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 flex-1 overflow-hidden flex flex-col">
+                {/* Tab bar */}
+                <div className="flex border-b border-gray-100 dark:border-gray-700 px-4">
+                  {(['manufacturing', 'activities'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => setWorkshopInnerTab(tab)}
+                      className={`px-3 py-2.5 text-xs font-medium capitalize border-b-2 -mb-px transition-colors ${
+                        workshopInnerTab === tab
+                          ? 'border-amber-500 text-amber-600 dark:text-amber-400'
+                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <p className="font-semibold text-sm text-gray-900 dark:text-white">Item {idx + 1}</p>
-                        <Badge variant="outline" className="text-[10px]">{item.operation}</Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{item.area} — {item.product}</p>
-                      <p className="text-xs text-muted-foreground">{item.width} × {item.length}</p>
-                    </div>
+                      {tab === 'manufacturing' ? 'Manufacturing Details' : 'Activities'}
+                    </button>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
 
-            {/* Right: Item details + stage timeline */}
-            <Card className="lg:col-span-2">
-              <CardHeader>
-                <CardTitle>Item Details & Status</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {selectedItem ? (() => {
-                  const item = order.items.find(i => i._id === selectedItem)
-                  if (!item) return null
+                <div className="flex-1 overflow-y-auto p-4">
+                  {workshopInnerTab === 'manufacturing' && (
+                    selectedItem ? (() => {
+                      const item = order.items.find(i => i._id === selectedItem)
+                      if (!item) return null
+                      const qi = quoteData?.items?.find((q: any) => q.lineNumber === item.lineNumber)
+                      const quoteProductName = qi?.productName ? qi.productName.split(' - ')[0].trim() : undefined
+                      const tKey = autoSelectTemplate(item as any, quoteProductName)
+                      const tmpl = getTemplateByKey(tKey) || SHEET_TEMPLATES[0]
+                      const sheetRow = {
+                        ser: 1, qty: item.qty || 1,
+                        seq: (item as any).sequence || '', ss: '',
+                        area: item.area || '',
+                        width: item.width || '', height: item.length || '',
+                        heightL: item.length || '', heightR: item.length || '',
+                        cord: '0', channel: item.channelNumber || '',
+                        pos: (item as any).controlSide || 'RIGHT',
+                        isOs: item.mount === 'OS' ? 'OS' : 'INSIDE',
+                        wand: '0', component: item.cassetteTypeColor || '', fabricLoc: '',
+                      }
+                      const w = parseDim(sheetRow.width)
+                      const h = parseDim(sheetRow.height)
+                      const hL = parseDim(sheetRow.heightL)
+                      const hR = parseDim(sheetRow.heightR)
+                      return (
+                        <div className="space-y-3">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{tmpl.title}</p>
+                          <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                            <table className="text-xs border-collapse" style={{ minWidth: '100%' }}>
+                              <thead>
+                                <tr className="bg-orange-400 text-white text-center">
+                                  {tmpl.columns.map(col => (
+                                    <th key={col.key} className="border border-orange-300 px-2 py-1.5 whitespace-nowrap font-semibold" style={{ minWidth: col.w }}>
+                                      {col.label}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr className="bg-white dark:bg-background">
+                                  {tmpl.columns.map(col => {
+                                    const ct = col.type
+                                    let val = ''
+                                    if (ct === 'ser') val = '1'
+                                    else if (ct === 'qty') val = String(sheetRow.qty)
+                                    else if (ct === 'seq') val = sheetRow.seq
+                                    else if (ct === 'ss') val = sheetRow.ss
+                                    else if (ct === 'area') val = sheetRow.area
+                                    else if (ct === 'width') val = sheetRow.width
+                                    else if (ct === 'height') val = sheetRow.height
+                                    else if (ct === 'heightL') val = sheetRow.heightL
+                                    else if (ct === 'heightR') val = sheetRow.heightR
+                                    else if (ct === 'cord') val = sheetRow.cord
+                                    else if (ct === 'channel') val = sheetRow.channel
+                                    else if (ct === 'pos') val = sheetRow.pos
+                                    else if (ct === 'isOs') val = sheetRow.isOs
+                                    else if (ct === 'wand') val = sheetRow.wand
+                                    else if (ct === 'component') val = sheetRow.component
+                                    else if (ct === 'fabricLoc') val = sheetRow.fabricLoc
+                                    else {
+                                      const computed = computeCol(ct, w, h, hL, hR)
+                                      val = computed !== null ? fmtDim(computed) : ''
+                                    }
+                                    return (
+                                      <td key={col.key} className="border border-gray-200 dark:border-gray-700 px-2 py-2 text-center font-mono font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                                        {val || '—'}
+                                      </td>
+                                    )
+                                  })}
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )
+                    })() : (
+                      <p className="text-sm text-gray-400">Select an item from the left panel to view manufacturing details.</p>
+                    )
+                  )}
+
+                  {workshopInnerTab === 'activities' && (
+                    <div className="space-y-2">
+                      {(order.activity || []).length === 0 ? (
+                        <p className="text-sm text-gray-400">No activity recorded yet.</p>
+                      ) : [...(order.activity || [])].reverse().map((act: any, i) => (
+                        <div key={i} className="flex items-start gap-3 py-2 border-b border-gray-50 dark:border-gray-700 last:border-0">
+                          <div className="w-7 h-7 rounded-full bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center flex-shrink-0 text-xs text-amber-600">
+                            {(act.userName || act.user || '?').slice(0, 1).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium text-gray-800 dark:text-white">{act.action}</p>
+                            <p className="text-[11px] text-gray-400">{act.details}</p>
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                              {act.userName || act.user} · {act.timestamp ? new Date(act.timestamp).toLocaleString() : ''}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right sidebar — Scan History */}
+            <div className="w-52 flex-shrink-0 flex flex-col gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 px-1 mb-1">Scan History</p>
+              {selectedItem ? (() => {
+                const item = order.items.find(i => i._id === selectedItem)
+                const stages = ((item as any)?.itemStages || []) as Array<{ stage: string; completedAt: string; stationId: string; completedByName?: string }>
+                if (stages.length === 0) {
+                  return <p className="text-xs text-gray-400 px-1">No stages completed yet for this item.</p>
+                }
+                return stages.map((s, i) => {
+                  const stDef = SCAN_STATIONS.find(st => st.stage === s.stage)
                   return (
-                    <div className="space-y-5">
-                      {/* Status selector */}
-                      <div>
-                        <label className="text-sm font-medium mb-1.5 block text-gray-900 dark:text-white">Order Status</label>
-                        <Select
-                          value={order.status}
-                          onValueChange={(value) => handleStatusChange(value as ProductionStatus)}
-                          disabled={saving === 'order'}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Object.entries(statusLabels).map(([value, label]) => (
-                              <SelectItem key={value} value={value}>{label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                    <div key={i} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2.5">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-sm">{stDef?.icon || '✓'}</span>
+                        <span className="text-xs font-semibold text-gray-800 dark:text-white">{STAGE_LABELS[s.stage] || s.stage}</span>
                       </div>
-
-                      {/* Item details grid */}
-                      <div className="rounded-lg border dark:border-gray-700 overflow-hidden">
-                        <div className="divide-y dark:divide-gray-700">
-                          {[
-                            ['Unit Type', 'mm'],
-                            ['Quantity', String(item.qty || 1)],
-                            ['Measure To', item.mount || '—'],
-                            ['Control Type', item.operation || '—'],
-                            ['Fabric', item.fabric || '—'],
-                            ['Collection', item.collection || '—'],
-                            ['Cassette Type/Color', item.cassetteTypeColor || '—'],
-                            ['Bottom Rail', item.bottomRail || '—'],
-                            ['Side Chain', item.sideChain || '—'],
-                            ['Brackets', item.brackets || '—'],
-                            ...(item.operation === 'MOTORIZED' ? [
-                              ['Motor', item.motor || '—'],
-                              ['Motor Type', item.motorType || '—'],
-                              ['Motor Accessories', item.smartAccessories || '—'],
-                              ['Remote Control', item.remoteControl || '—'],
-                              ['Remote No.', item.remoteNumber || '—'],
-                              ['Channel #', item.channelNumber || '—'],
-                            ] : []),
-                            ...(item.operation === 'MANUAL' ? [
-                              ['Cord/Chain', item.cordChain || '—'],
-                              ['Cord/Chain Color', item.cordChainColor || '—'],
-                            ] : []),
-                          ].map(([label, value], i) => (
-                            <div key={label} className={`flex items-center px-3 py-2 ${i % 2 === 1 ? 'bg-gray-50 dark:bg-gray-800/50' : ''}`}>
-                              <span className="text-xs text-muted-foreground w-40 flex-shrink-0">{label}</span>
-                              <span className="text-xs text-gray-900 dark:text-white font-medium">{value}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Stage completion timeline */}
-                      <div>
-                        <p className="text-sm font-semibold mb-3 text-gray-900 dark:text-white">Stage History</p>
-                        <div className="space-y-2">
-                          {workflowSteps.map((step) => {
-                            const completion = (order.stageCompletions || []).find((sc: any) => sc.status === step)
-                            const done = !!completion
-                            return (
-                              <div key={step} className="flex items-start gap-3">
-                                <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${done ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
-                                <div>
-                                  <p className={`text-xs font-medium ${done ? 'text-gray-900 dark:text-white' : 'text-muted-foreground'}`}>
-                                    {statusLabels[step]}
-                                  </p>
-                                  {completion && (
-                                    <p className="text-[11px] text-muted-foreground">
-                                      {(completion as any).completedBy} · {new Date((completion as any).completedAt).toLocaleDateString()}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                        {s.completedByName || 'Unknown'}
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        {s.completedAt ? new Date(s.completedAt).toLocaleString() : ''}
+                      </p>
                     </div>
                   )
-                })() : (
-                  <p className="text-muted-foreground text-sm">Select an item from the left to view details</p>
-                )}
-              </CardContent>
-            </Card>
+                })
+              })() : (
+                <p className="text-xs text-gray-400 px-1">Select an item to see its scan history.</p>
+              )}
+            </div>
           </div>
         </TabsContent>
 
@@ -1318,7 +1658,7 @@ export default function ProductionOrderDetailPage() {
             {/* Toolbar — hidden on print */}
             <div className="flex items-center justify-between no-print">
               <p className="text-sm font-medium text-gray-900 dark:text-white">
-                {order.items.length} label{order.items.length !== 1 ? 's' : ''}
+                {totalLabels} label{totalLabels !== 1 ? 's' : ''}
               </p>
               <Button size="sm" onClick={() => window.print()} className="gap-2">
                 <Printer className="h-4 w-4" />
@@ -1329,33 +1669,23 @@ export default function ProductionOrderDetailPage() {
             {/* Labels grid */}
             <div id="labels-print-root">
               <div className="labels-grid grid grid-cols-1 md:grid-cols-2 gap-4">
-                {order.items.map((item, idx) => {
-                  const barcodeVal = `${order.orderNumber.replace(/-/g, '')}${String(idx + 1).padStart(4, '0')}`
+                {expandedLabelItems.map(({ item, copyNum, totalCopies }, labelIdx) => {
+                  const barcodeVal = `${order.orderNumber.replace(/-/g, '')}${String(labelIdx + 1).padStart(4, '0')}`
                   const motorInfo = item.operation === 'MOTORIZED' && (item.remoteNumber || item.channelNumber)
                     ? ` | Remote: ${item.remoteNumber || '—'}, CH: ${item.channelNumber || '—'}`
                     : ''
                   const specialInstructions = `${item.mount || '—'}${motorInfo}`
-                  const qrData = [
-                    `ID:${barcodeVal}`,
-                    `ORDER:${order.orderNumber}`,
-                    `CUSTOMER:${order.customerName}`,
-                    `AREA:${item.area || '—'}`,
-                    `SIZE:${item.width}x${item.length}`,
-                    `PRODUCT:${item.product || '—'}`,
-                    `FABRIC:${item.fabric || '—'}`,
-                    `MOUNT:${item.mount || '—'}`,
-                    `OP:${item.operation || 'MANUAL'}`,
-                    `MFG:${format(order.orderDate, 'dd-MM-yyyy')}`,
-                    `ITEM:${idx + 1}/${order.items.length}`,
-                  ].join('\n')
+                  const productName = withShade(getProductName(item))
+                  const mfgDate = format(new Date(), 'dd-MM-yyyy')
+                  const qrData = `${typeof window !== 'undefined' ? window.location.origin : ''}/production/orders/${orderId}?workshop=1&item=${item._id?.toString() || ''}`
                   return (
                     <div
-                      key={item._id}
+                      key={`${item._id}-${copyNum}`}
                       className="label-card border border-gray-300 rounded bg-white text-black p-3"
                       style={{ fontFamily: 'Arial, sans-serif', fontSize: '11px', lineHeight: '1.4' }}
                     >
-                      {/* Top section: 2 columns */}
-                      <div className="grid grid-cols-2 gap-x-3 mb-2">
+                      {/* Top section: left info | center logo | right info */}
+                      <div className="grid mb-2" style={{ gridTemplateColumns: '1fr auto 1fr', gap: '6px' }}>
                         {/* Left */}
                         <div className="space-y-0.5">
                           <div><span className="font-semibold">Customer Name:</span> {order.customerName}</div>
@@ -1367,16 +1697,19 @@ export default function ProductionOrderDetailPage() {
                           <div><span className="font-semibold">Location:</span> {item.area || '—'}</div>
                           <div><span className="font-semibold">Special Instructions:</span> {specialInstructions}</div>
                         </div>
+                        {/* Center logo */}
+                        <div className="flex items-center justify-center px-2">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src="/images/logo.png" alt="Logo" style={{ height: 36, maxWidth: 80, objectFit: 'contain' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                        </div>
                         {/* Right */}
                         <div className="space-y-0.5 text-right">
-                          {/* Company logo */}
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src="/images/logo.png" alt="Logo" style={{ height: 28, marginLeft: 'auto', marginBottom: 4, display: 'block' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                          <div><span className="font-semibold">Mfg Date:</span> {mfgDate}</div>
                           <div><span className="font-semibold">Order Date:</span> {format(order.orderDate, 'dd-MM-yyyy')}</div>
                           <div><span className="font-semibold">Due Date:</span> {order.installationDate ? format(order.installationDate, 'dd-MM-yyyy') : '—'}</div>
                           <div><span className="font-semibold">Order No:</span> {order.orderNumber}</div>
                           <div><span className="font-semibold">Cust Ref:</span> {order.sideMark || '—'}</div>
-                          <div><span className="font-semibold">Items</span> {idx + 1} of {order.items.length}</div>
+                          <div><span className="font-semibold">Items</span> {labelIdx + 1} of {totalLabels}{totalCopies > 1 ? ` (Unit ${copyNum}/${totalCopies})` : ''}</div>
                         </div>
                       </div>
 
@@ -1398,7 +1731,7 @@ export default function ProductionOrderDetailPage() {
 
                       {/* Bottom section */}
                       <div className="flex items-end justify-between">
-                        <span className="font-bold text-red-600" style={{ fontSize: '13px' }}>{item.product}</span>
+                        <span className="font-bold text-red-600" style={{ fontSize: '13px' }}>{productName}</span>
                         <div className="flex flex-col items-center gap-1">
                           <QRCode
                             value={qrData}
@@ -1709,121 +2042,130 @@ export default function ProductionOrderDetailPage() {
 
         {/* BOM Tab */}
         <TabsContent value="bom">
-          <Card>
-            <CardHeader>
-              <CardTitle>Bill of Materials</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Button onClick={addBOMItem} className="gap-2" size="sm">
-                    <Plus className="h-4 w-4" />
-                    Add Item
-                  </Button>
-                  {bomItems.length > 0 && (
-                    <Button onClick={saveBOM} size="sm" variant="outline" disabled={saving === 'bom'}>
-                      {saving === 'bom' ? 'Saving...' : 'Save BOM'}
-                    </Button>
-                  )}
-                </div>
-                {bomItems.length > 0 && (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Supply</TableHead>
-                        <TableHead>Available</TableHead>
-                        <TableHead>Quantity</TableHead>
-                        <TableHead>Unit</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {bomItems.map((item, idx) => {
-                        const selectedInventoryItem = inventoryItems.find(inv => inv._id === item.supplyId)
-                        return (
-                          <TableRow key={idx}>
-                            <TableCell>
-                              <Select
-                                value={item.supplyId || ''}
-                                onValueChange={(value) => handleBOMItemSelect(idx, value)}
-                              >
-                                <SelectTrigger className="w-[250px]">
-                                  <SelectValue placeholder="Select from inventory">
-                                    {item.supplyName || 'Select from inventory'}
-                                  </SelectValue>
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {inventoryItems.map((inv) => (
-                                    <SelectItem key={inv._id} value={inv._id}>
-                                      {inv.name} ({inv.quantity} {inv.unit} available)
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Input
-                                className="mt-1 w-[250px]"
-                                placeholder="Or type supply name"
-                                value={item.supplyName || ''}
-                                onChange={(e) => {
-                                  const updated = [...bomItems]
-                                  updated[idx] = { ...updated[idx], supplyId: '', supplyName: e.target.value }
-                                  setBomItems(updated)
-                                }}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              {item.availableQuantity !== undefined ? (
-                                <span className="text-sm text-muted-foreground">
-                                  {item.availableQuantity} {item.unit}
-                                </span>
-                              ) : (
-                                <span className="text-sm text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <Input
-                                type="number"
-                                value={item.quantity || ''}
-                                onChange={(e) => {
-                                  const updated = [...bomItems]
-                                  updated[idx].quantity = parseFloat(e.target.value) || 0
-                                  setBomItems(updated)
-                                }}
-                                className="w-32"
-                                min="0"
-                                max={item.availableQuantity}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Input
-                                value={item.unit}
-                                onChange={(e) => {
-                                  const updated = [...bomItems]
-                                  updated[idx].unit = e.target.value
-                                  setBomItems(updated)
-                                }}
-                                placeholder="Unit"
-                                className="w-32"
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeBOMItem(idx)}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                )}
+          <div className="space-y-4">
+            {/* Toolbar */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button onClick={() => addBOMItem()} size="sm" variant="outline" className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                Add Row
+              </Button>
+              <Button onClick={autoPopulateBOM} size="sm" variant="outline" className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400">
+                <Plus className="h-3.5 w-3.5" />
+                Auto-populate from Order
+              </Button>
+              {bomItems.length > 0 && (
+                <Button onClick={saveBOM} size="sm" disabled={saving === 'bom'} className="gap-1.5 ml-auto">
+                  {saving === 'bom' ? 'Saving...' : 'Save BOM'}
+                </Button>
+              )}
+            </div>
+
+            {bomItems.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-200 dark:border-gray-700 p-10 text-center text-sm text-muted-foreground">
+                No parts added yet. Use &ldquo;Auto-populate from Order&rdquo; to generate parts from order items, or add rows manually.
               </div>
-            </CardContent>
-          </Card>
+            ) : (() => {
+              // Group by productRef
+              const groups: Record<string, { ref: string; indices: number[] }> = {}
+              bomItems.forEach((b, i) => {
+                const ref = b.productRef || 'General'
+                if (!groups[ref]) groups[ref] = { ref, indices: [] }
+                groups[ref].indices.push(i)
+              })
+              const updateBom = (idx: number, patch: Partial<typeof bomItems[0]>) => {
+                const updated = [...bomItems]
+                updated[idx] = { ...updated[idx], ...patch }
+                setBomItems(updated)
+              }
+              return (
+                <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-gray-900 dark:bg-gray-800 text-white">
+                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wide text-[10px]">Part Name</th>
+                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wide text-[10px] w-28">SKU</th>
+                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wide text-[10px]">Description</th>
+                        <th className="px-3 py-2 text-center font-semibold uppercase tracking-wide text-[10px] w-20">Qty</th>
+                        <th className="px-3 py-2 text-left font-semibold uppercase tracking-wide text-[10px] w-20">Unit</th>
+                        <th className="px-3 py-2 text-center font-semibold uppercase tracking-wide text-[10px] w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.values(groups).map(({ ref, indices }) => (
+                        <React.Fragment key={ref}>
+                          {/* Group heading */}
+                          <tr className="bg-amber-50 dark:bg-amber-900/20 border-t border-amber-200 dark:border-amber-800/40">
+                            <td colSpan={5} className="px-3 py-1.5 font-semibold text-amber-800 dark:text-amber-300 text-[11px] uppercase tracking-wider">
+                              {ref}
+                            </td>
+                            <td className="px-3 py-1.5 text-center">
+                              <button
+                                onClick={() => addBOMItem(ref)}
+                                className="text-amber-600 hover:text-amber-800 dark:text-amber-400"
+                                title="Add part to this shade"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                          {indices.map((idx, ri) => (
+                            <tr key={idx} className={ri % 2 === 0 ? 'bg-white dark:bg-background' : 'bg-gray-50 dark:bg-muted/30'}>
+                              <td className="px-2 py-1 border-b border-gray-100 dark:border-gray-700">
+                                <input
+                                  value={bomItems[idx].supplyName}
+                                  onChange={e => updateBom(idx, { supplyName: e.target.value })}
+                                  placeholder="Part name"
+                                  className="w-full bg-transparent outline-none text-gray-900 dark:text-white placeholder:text-gray-400"
+                                />
+                              </td>
+                              <td className="px-2 py-1 border-b border-gray-100 dark:border-gray-700">
+                                <input
+                                  value={bomItems[idx].sku}
+                                  onChange={e => updateBom(idx, { sku: e.target.value })}
+                                  placeholder="SKU"
+                                  className="w-full bg-transparent outline-none font-mono text-gray-900 dark:text-white placeholder:text-gray-400"
+                                />
+                              </td>
+                              <td className="px-2 py-1 border-b border-gray-100 dark:border-gray-700">
+                                <input
+                                  value={bomItems[idx].description}
+                                  onChange={e => updateBom(idx, { description: e.target.value })}
+                                  placeholder="Description"
+                                  className="w-full bg-transparent outline-none text-gray-900 dark:text-white placeholder:text-gray-400"
+                                />
+                              </td>
+                              <td className="px-2 py-1 border-b border-gray-100 dark:border-gray-700 text-center">
+                                <input
+                                  type="number"
+                                  value={bomItems[idx].quantity || ''}
+                                  onChange={e => updateBom(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                                  className="w-16 text-center bg-transparent outline-none text-gray-900 dark:text-white"
+                                  min={0}
+                                />
+                              </td>
+                              <td className="px-2 py-1 border-b border-gray-100 dark:border-gray-700">
+                                <input
+                                  value={bomItems[idx].unit}
+                                  onChange={e => updateBom(idx, { unit: e.target.value })}
+                                  placeholder="pcs"
+                                  className="w-full bg-transparent outline-none text-gray-900 dark:text-white placeholder:text-gray-400"
+                                />
+                              </td>
+                              <td className="px-2 py-1 border-b border-gray-100 dark:border-gray-700 text-center">
+                                <button onClick={() => removeBOMItem(idx)} className="text-gray-400 hover:text-red-500">
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })()}
+          </div>
         </TabsContent>
 
         {/* Shipping Tab */}

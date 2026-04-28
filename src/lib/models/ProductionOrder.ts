@@ -70,6 +70,15 @@ export interface ProductionOrderItem {
   sequence?: string
   // Simple per-item checklist flag for production/orders UI
   checklistDone?: boolean
+  // Per-item stage tracking for QR scan system
+  currentItemStage?: string
+  itemStages?: {
+    stage: string
+    completedAt: Date
+    stationId: string
+    completedBy?: string
+    completedByName?: string
+  }[]
 }
 
 export interface StageCompletion {
@@ -96,6 +105,9 @@ export interface CutPiece {
 export interface BOMItem {
   _id?: mongoose.Types.ObjectId
   supplyName: string
+  sku?: string
+  description?: string
+  productRef?: string
   quantity: number
   unit: string
 }
@@ -206,6 +218,15 @@ const ProductionOrderItemSchema = new Schema<ProductionOrderItem>(
     sequence: { type: String, default: '' },
     // Simple per-item checklist flag for production/orders UI
     checklistDone: { type: Boolean, default: false },
+    // Per-item stage tracking for QR scan system
+    currentItemStage: { type: String },
+    itemStages: [{
+      stage: { type: String, required: true },
+      completedAt: { type: Date, default: Date.now },
+      stationId: { type: String, required: true },
+      completedBy: { type: String },
+      completedByName: { type: String },
+    }],
   },
   { _id: true }
 )
@@ -255,6 +276,9 @@ const CutPieceSchema = new Schema<CutPiece>(
 const BOMItemSchema = new Schema<BOMItem>(
   {
     supplyName: { type: String, required: true, default: '' },
+    sku: { type: String, default: '' },
+    description: { type: String, default: '' },
+    productRef: { type: String, default: '' },
     quantity: { type: Number, required: true, default: 0 },
     unit: { type: String, required: true, default: 'pieces' },
   },

@@ -22,22 +22,19 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Search, X, Plus, Trash2, Loader2, Upload, Pencil, ChevronLeft, ChevronRight, Layers, Palette, Grid3X3 } from 'lucide-react'
+import { Search, X, Plus, Trash2, Loader2, Upload, Pencil, ChevronLeft, ChevronRight, Layers, Palette, Grid3X3, Package, FileSpreadsheet, Download, CheckCircle2, AlertCircle, CircleOff, Clock } from 'lucide-react'
+import Link from 'next/link'
 import Image from 'next/image'
 import { useAuthStore } from '@/stores/authStore'
 import type { Fabric } from '@/types/fabric'
 import { QUOTE_COLLECTIONS } from '@/lib/quoteConstants'
 import { getFabricImageUrl } from '@/constants/fabrics'
 
-const FABRIC_CATEGORIES = [
-  'Duo Shades', 'Roller Shades', 'Tri Shades', 'Uni Shades', 'Roman Shades',
-  'Exterior - Zip Track', 'Exterior - Wire Guide', 'Exterior - Free Hang',
-]
-
-const FABRIC_SUBCATEGORIES = [
-  'Light Filtering', 'Room Dimming', 'Blackout',
-  '0%', '80%', '85%', '90%', '95%', '99%',
-]
+interface ProductOption {
+  _id: string
+  name: string
+  categories: { _id: string; name: string; collections: { _id: string; name: string }[] }[]
+}
 
 function FabricImage({ fabric, alt }: { fabric: { imageUrl?: string | null; imageFilename: string; color?: string }; alt: string }) {
   const [error, setError] = useState(false)
@@ -60,6 +57,54 @@ function FabricImage({ fabric, alt }: { fabric: { imageUrl?: string | null; imag
   )
 }
 
+type StockStatusValue = 'in_stock' | 'back_order' | 'discontinued'
+
+const STOCK_OPTIONS: { value: StockStatusValue; label: string; icon: React.ElementType; active: string; inactive: string }[] = [
+  {
+    value: 'in_stock',
+    label: 'In Stock',
+    icon: CheckCircle2,
+    active: 'bg-green-500 text-white border-green-500',
+    inactive: 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-green-50 dark:hover:bg-green-900/20 hover:text-green-700 dark:hover:text-green-400',
+  },
+  {
+    value: 'back_order',
+    label: 'Back Order',
+    icon: Clock,
+    active: 'bg-amber-500 text-white border-amber-500',
+    inactive: 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-700 dark:hover:text-amber-400',
+  },
+  {
+    value: 'discontinued',
+    label: 'Discontinued',
+    icon: CircleOff,
+    active: 'bg-red-500 text-white border-red-500',
+    inactive: 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-700 dark:hover:text-red-400',
+  },
+]
+
+function StockStatusSelector({ value, onChange }: { value: StockStatusValue; onChange: (v: StockStatusValue) => void }) {
+  return (
+    <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden divide-x divide-gray-200 dark:divide-gray-700">
+      {STOCK_OPTIONS.map(opt => {
+        const Icon = opt.icon
+        const isActive = value === opt.value
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-2 text-sm font-medium transition-colors border-0 ${isActive ? opt.active : opt.inactive}`}
+          >
+            <Icon className="h-4 w-4 shrink-0" />
+            <span className="hidden sm:inline">{opt.label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 type FabricForm = {
   category: string
   subcategory: string
@@ -75,6 +120,9 @@ type FabricForm = {
   maxWidth: string
   rollLength: string
   fabricWidth: string
+  stockStatus: 'in_stock' | 'back_order' | 'discontinued'
+  expectedArrival: string
+  rollsAvailable: string
 }
 
 type NewFabric = FabricForm
@@ -94,6 +142,9 @@ const EMPTY_NEW_FABRIC: FabricForm = {
   maxWidth: '',
   rollLength: '',
   fabricWidth: '',
+  stockStatus: 'in_stock',
+  expectedArrival: '',
+  rollsAvailable: '0',
 }
 
 export default function FabricGalleryPage() {
@@ -102,6 +153,8 @@ export default function FabricGalleryPage() {
 
   const [fabrics, setFabrics] = useState<Fabric[]>([])
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+  const [productOptions, setProductOptions] = useState<ProductOption[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [addSaving, setAddSaving] = useState(false)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
@@ -113,6 +166,11 @@ export default function FabricGalleryPage() {
   const [editSaving, setEditSaving] = useState(false)
   const [editUploading, setEditUploading] = useState(false)
 
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
+  const [bulkFile, setBulkFile] = useState<File | null>(null)
+  const [bulkUploading, setBulkUploading] = useState(false)
+  const [bulkResult, setBulkResult] = useState<{ inserted: number; errors: { row: number; error: string }[]; total: number } | null>(null)
+
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [selectedSubcategory, setSelectedSubcategory] = useState('all')
   const [selectedCollection, setSelectedCollection] = useState('all')
@@ -123,10 +181,14 @@ export default function FabricGalleryPage() {
     if (!token) { setLoading(false); return }
     try {
       setLoading(true)
+      setFetchError(null)
       const res = await fetch('/api/fabric-gallery', {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!res.ok) throw new Error('Failed to fetch fabrics')
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || `Server error ${res.status}`)
+      }
       const data = await res.json()
       setFabrics((data.fabrics ?? []).map((f: any) => ({
         id: f.id,
@@ -145,9 +207,14 @@ export default function FabricGalleryPage() {
         maxWidth: f.maxWidth,
         rollLength: f.rollLength,
         fabricWidth: f.fabricWidth ?? undefined,
+        stockStatus: f.stockStatus ?? (f.inStock === false ? 'back_order' : 'in_stock'),
+        expectedArrival: f.expectedArrival ?? undefined,
+        inStock: f.inStock ?? true,
+        rollsAvailable: f.rollsAvailable ?? 0,
       })))
     } catch (err) {
       console.error(err)
+      setFetchError(err instanceof Error ? err.message : 'Failed to load fabrics')
       setFabrics([])
     } finally {
       setLoading(false)
@@ -155,6 +222,14 @@ export default function FabricGalleryPage() {
   }, [token])
 
   useEffect(() => { fetchFabrics() }, [fetchFabrics])
+
+  useEffect(() => {
+    if (!token) return
+    fetch('/api/production/products', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then((data: ProductOption[]) => setProductOptions(data))
+      .catch(() => {})
+  }, [token])
 
   const categories = useMemo(() => Array.from(new Set(fabrics.map(f => f.category))).sort(), [fabrics])
 
@@ -222,6 +297,9 @@ export default function FabricGalleryPage() {
           minWidth: newFabric.minWidth || undefined,
           maxWidth: newFabric.maxWidth || undefined,
           rollLength: newFabric.rollLength || undefined,
+          stockStatus: newFabric.stockStatus,
+          expectedArrival: newFabric.expectedArrival || undefined,
+          rollsAvailable: Number(newFabric.rollsAvailable) || 0,
         }),
       })
       if (!res.ok) {
@@ -255,6 +333,9 @@ export default function FabricGalleryPage() {
       maxWidth: fabric.maxWidth ?? '',
       rollLength: fabric.rollLength ?? '',
       fabricWidth: (fabric as any).fabricWidth != null ? String((fabric as any).fabricWidth) : '',
+      stockStatus: (fabric as any).stockStatus ?? (fabric.inStock === false ? 'back_order' : 'in_stock'),
+      expectedArrival: (fabric as any).expectedArrival ?? '',
+      rollsAvailable: String(fabric.rollsAvailable ?? 0),
     })
     setEditDialogOpen(true)
   }
@@ -281,6 +362,9 @@ export default function FabricGalleryPage() {
           maxWidth: editForm.maxWidth || undefined,
           rollLength: editForm.rollLength || undefined,
           fabricWidth: editForm.fabricWidth !== '' ? Number(editForm.fabricWidth) : null,
+          stockStatus: editForm.stockStatus,
+          expectedArrival: editForm.expectedArrival || undefined,
+          rollsAvailable: Number(editForm.rollsAvailable) || 0,
         }),
       })
       if (!res.ok) {
@@ -315,6 +399,42 @@ export default function FabricGalleryPage() {
     }
   }
 
+  async function handleBulkUpload() {
+    if (!bulkFile || !token) return
+    setBulkUploading(true)
+    setBulkResult(null)
+    try {
+      const form = new FormData()
+      form.append('file', bulkFile)
+      const res = await fetch('/api/fabric-gallery/bulk', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Bulk upload failed')
+      setBulkResult(data)
+      if (data.inserted > 0) await fetchFabrics()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Bulk upload failed')
+    } finally {
+      setBulkUploading(false)
+    }
+  }
+
+  async function downloadTemplate() {
+    if (!token) return
+    const res = await fetch('/api/fabric-gallery/bulk', { headers: { Authorization: `Bearer ${token}` } })
+    if (!res.ok) return
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'fabric-upload-template.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const hasFilters = selectedCategory !== 'all' || selectedSubcategory !== 'all' || selectedCollection !== 'all' || !!searchTerm
 
   const allCollections = useMemo(() => Array.from(new Set(fabrics.map(f => f.collection).filter(Boolean))), [fabrics])
@@ -326,7 +446,10 @@ export default function FabricGalleryPage() {
         <div className="space-y-3">
           <div>
             <h1 className="text-xl font-semibold text-gray-900 dark:text-white tracking-tight">Fabric Gallery</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Manage your fabric catalogue by product type and collection</p>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Add fabric colors here. Manage products, openness options, and collections in{' '}
+              <Link href="/production/products" className="text-amber-600 underline underline-offset-2">Products</Link>.
+            </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center gap-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 px-3 py-1.5">
@@ -348,6 +471,16 @@ export default function FabricGalleryPage() {
         </div>
         {isAdmin && (
           <div className="flex items-center gap-2 flex-shrink-0">
+          <Link href="/production/products">
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <Package className="h-3.5 w-3.5" />
+              Manage Products
+            </Button>
+          </Link>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { setBulkDialogOpen(true); setBulkResult(null); setBulkFile(null) }}>
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            Bulk Upload
+          </Button>
           <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
             <DialogTrigger asChild>
               <Button>
@@ -355,177 +488,161 @@ export default function FabricGalleryPage() {
                 Add Fabric
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Add New Fabric</DialogTitle>
-                <DialogDescription>Fill in the required fields (Category, Subcategory, Color).</DialogDescription>
+                <DialogDescription>Fields marked * are required.</DialogDescription>
               </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  {/* Category */}
+              <div className="py-4 space-y-5">
+                {/* Row 1: Identity */}
+                <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label>Category *</Label>
-                    <Select value={newFabric.category} onValueChange={v => setNewFabric({ ...newFabric, category: v })}>
-                      <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                    <Label>Product *</Label>
+                    <Select value={newFabric.category} onValueChange={v => setNewFabric({ ...newFabric, category: v, subcategory: '', collection: '' })}>
+                      <SelectTrigger><SelectValue placeholder="Select product" /></SelectTrigger>
                       <SelectContent>
-                        {FABRIC_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                        {productOptions.map(p => <SelectItem key={p._id} value={p.name}>{p.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
-
-                  {/* Subcategory */}
                   <div className="space-y-2">
-                    <Label>Subcategory *</Label>
-                    <Select value={newFabric.subcategory} onValueChange={v => setNewFabric({ ...newFabric, subcategory: v })}>
-                      <SelectTrigger><SelectValue placeholder="Select subcategory" /></SelectTrigger>
-                      <SelectContent>
-                        {FABRIC_SUBCATEGORIES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <Label>Openness *</Label>
+                    {(() => {
+                      const sel = productOptions.find(p => p.name === newFabric.category)
+                      const cats = sel?.categories ?? []
+                      return cats.length > 0 ? (
+                        <Select value={newFabric.subcategory} onValueChange={v => setNewFabric({ ...newFabric, subcategory: v, collection: '' })}>
+                          <SelectTrigger><SelectValue placeholder="Select openness" /></SelectTrigger>
+                          <SelectContent>{cats.map(c => <SelectItem key={c._id} value={c.name}>{c.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                      ) : (
+                        <Input value={newFabric.subcategory} onChange={e => setNewFabric({ ...newFabric, subcategory: e.target.value })} placeholder="e.g., 1%, Light Filtering" />
+                      )
+                    })()}
                   </div>
-
-                  {/* Color */}
                   <div className="space-y-2">
                     <Label>Color Name *</Label>
-                    <Input
-                      value={newFabric.color}
-                      onChange={e => setNewFabric({ ...newFabric, color: e.target.value })}
-                      placeholder="e.g., White, Sunrise, Sand"
-                    />
-                  </div>
-
-                  {/* Collection */}
-                  <div className="space-y-2">
-                    <Label>Collection</Label>
-                    <Input
-                      value={newFabric.collection}
-                      onChange={e => setNewFabric({ ...newFabric, collection: e.target.value })}
-                      placeholder="e.g., Infra, Salvus, Geneva"
-                    />
-                  </div>
-
-                  {/* Pricing Collection */}
-                  <div className="space-y-2 md:col-span-2">
-                    <Label>Pricing Chart</Label>
-                    <Select value={newFabric.pricingCollectionId} onValueChange={v => setNewFabric({ ...newFabric, pricingCollectionId: v })}>
-                      <SelectTrigger><SelectValue placeholder="Select pricing chart (required for quotes)" /></SelectTrigger>
-                      <SelectContent>
-                        {QUOTE_COLLECTIONS.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">Determines which pricing table is used when this fabric is added to a quote.</p>
-                  </div>
-
-                  {/* Opacity */}
-                  <div className="space-y-2">
-                    <Label>Opacity</Label>
-                    <Input
-                      value={newFabric.opacity}
-                      onChange={e => setNewFabric({ ...newFabric, opacity: e.target.value })}
-                      placeholder="e.g., 10%, 5%"
-                    />
-                  </div>
-
-                  {/* Width */}
-                  <div className="space-y-2">
-                    <Label>Roll Width</Label>
-                    <Input
-                      value={newFabric.width}
-                      onChange={e => setNewFabric({ ...newFabric, width: e.target.value })}
-                      placeholder='e.g., 126"'
-                    />
-                  </div>
-
-                  {/* Min Width */}
-                  <div className="space-y-2">
-                    <Label>Min Width</Label>
-                    <Input
-                      value={newFabric.minWidth}
-                      onChange={e => setNewFabric({ ...newFabric, minWidth: e.target.value })}
-                      placeholder='e.g., 24"'
-                    />
-                  </div>
-
-                  {/* Max Width */}
-                  <div className="space-y-2">
-                    <Label>Max Width</Label>
-                    <Input
-                      value={newFabric.maxWidth}
-                      onChange={e => setNewFabric({ ...newFabric, maxWidth: e.target.value })}
-                      placeholder='e.g., 126"'
-                    />
-                  </div>
-
-                  {/* Roll Length */}
-                  <div className="space-y-2">
-                    <Label>Roll Length</Label>
-                    <Input
-                      value={newFabric.rollLength}
-                      onChange={e => setNewFabric({ ...newFabric, rollLength: e.target.value })}
-                      placeholder="e.g., 22 yd/roll"
-                    />
+                    <Input value={newFabric.color} onChange={e => setNewFabric({ ...newFabric, color: e.target.value })} placeholder="e.g., White, Sunrise" />
                   </div>
                 </div>
 
-                {/* Image: upload (saved to Cloudinary and shown from DB/Cloudinary) */}
+                {/* Row 2: Collection + Pricing */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Collection</Label>
+                    {(() => {
+                      const sel = productOptions.find(p => p.name === newFabric.category)
+                      const cat = sel?.categories.find(c => c.name === newFabric.subcategory)
+                      const cols = cat?.collections ?? []
+                      return cols.length > 0 ? (
+                        <Select value={newFabric.collection} onValueChange={v => setNewFabric({ ...newFabric, collection: v })}>
+                          <SelectTrigger><SelectValue placeholder="Select collection" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">None</SelectItem>
+                            {cols.map(c => <SelectItem key={c._id} value={c.name}>{c.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input value={newFabric.collection} onChange={e => setNewFabric({ ...newFabric, collection: e.target.value })} placeholder="e.g., Infra, Salvus" />
+                      )
+                    })()}
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label>Pricing Chart</Label>
+                    <Select value={newFabric.pricingCollectionId} onValueChange={v => setNewFabric({ ...newFabric, pricingCollectionId: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select pricing chart" /></SelectTrigger>
+                      <SelectContent>{QUOTE_COLLECTIONS.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Row 3: Stock Status */}
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-4 space-y-3">
+                  <Label className="text-sm font-medium">Availability</Label>
+                  <StockStatusSelector value={newFabric.stockStatus} onChange={v => setNewFabric({ ...newFabric, stockStatus: v, expectedArrival: v !== 'back_order' ? '' : newFabric.expectedArrival })} />
+                  {newFabric.stockStatus === 'back_order' && (
+                    <div className="grid grid-cols-3 gap-4 pt-1">
+                      <div className="space-y-2">
+                        <Label className="text-xs text-amber-700 dark:text-amber-400 font-medium">Expected Arrival Date</Label>
+                        <Input
+                          type="date"
+                          value={newFabric.expectedArrival}
+                          onChange={e => setNewFabric({ ...newFabric, expectedArrival: e.target.value })}
+                          className="border-amber-300 dark:border-amber-700 focus-visible:ring-amber-400"
+                        />
+                      </div>
+                      <div className="col-span-2 space-y-2">
+                        <Label className="text-xs text-muted-foreground">Rolls Available</Label>
+                        <Input type="number" min="0" value={newFabric.rollsAvailable} onChange={e => setNewFabric({ ...newFabric, rollsAvailable: e.target.value })} placeholder="0" />
+                      </div>
+                    </div>
+                  )}
+                  {newFabric.stockStatus === 'in_stock' && (
+                    <div className="grid grid-cols-3 gap-4 pt-1">
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Rolls Available</Label>
+                        <Input type="number" min="0" value={newFabric.rollsAvailable} onChange={e => setNewFabric({ ...newFabric, rollsAvailable: e.target.value })} placeholder="0" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Row 4: Specs */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Opacity</Label>
+                    <Input value={newFabric.opacity} onChange={e => setNewFabric({ ...newFabric, opacity: e.target.value })} placeholder="e.g., 10%, 5%" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Roll Width</Label>
+                    <Input value={newFabric.width} onChange={e => setNewFabric({ ...newFabric, width: e.target.value })} placeholder='e.g., 126"' />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Roll Length</Label>
+                    <Input value={newFabric.rollLength} onChange={e => setNewFabric({ ...newFabric, rollLength: e.target.value })} placeholder="e.g., 22 yd/roll" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Min Width</Label>
+                    <Input value={newFabric.minWidth} onChange={e => setNewFabric({ ...newFabric, minWidth: e.target.value })} placeholder='e.g., 24"' />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Max Width</Label>
+                    <Input value={newFabric.maxWidth} onChange={e => setNewFabric({ ...newFabric, maxWidth: e.target.value })} placeholder='e.g., 126"' />
+                  </div>
+                </div>
+
+                {/* Row 5: Image */}
                 <div className="space-y-2">
                   <Label>Fabric Image</Label>
-                  <div className="flex gap-4 items-start flex-wrap">
+                  <div className="flex gap-4 items-center flex-wrap">
                     <Label htmlFor="fabric-upload" className="cursor-pointer border rounded-md px-3 py-2 text-sm font-medium hover:bg-muted flex items-center gap-2 shrink-0">
                       <Upload className="h-4 w-4" />
                       {uploading ? 'Uploading…' : 'Upload image'}
                     </Label>
-                    <input
-                      id="fabric-upload"
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      disabled={uploading}
+                    <input id="fabric-upload" type="file" accept="image/*" className="hidden" disabled={uploading}
                       onChange={async (e) => {
-                        const file = e.target.files?.[0]
-                        if (!file || !token) return
-                        setUploading(true)
-                        e.target.value = ''
+                        const file = e.target.files?.[0]; if (!file || !token) return
+                        setUploading(true); e.target.value = ''
                         try {
-                          const form = new FormData()
-                          form.append('file', file)
-                          const res = await fetch('/api/fabric-gallery/upload', {
-                            method: 'POST',
-                            headers: { Authorization: `Bearer ${token}` },
-                            body: form,
-                          })
-                          if (!res.ok) {
-                            const data = await res.json().catch(() => ({}))
-                            throw new Error(data.error || 'Upload failed')
-                          }
+                          const form = new FormData(); form.append('file', file)
+                          const res = await fetch('/api/fabric-gallery/upload', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form })
+                          if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Upload failed') }
                           const { url, publicId } = await res.json()
-                          setNewFabric((prev) => ({ ...prev, imageUrl: url, cloudinaryPublicId: publicId ?? '' }))
-                        } catch (err) {
-                          alert(err instanceof Error ? err.message : 'Upload failed')
-                        } finally {
-                          setUploading(false)
-                        }
+                          setNewFabric(prev => ({ ...prev, imageUrl: url, cloudinaryPublicId: publicId ?? '' }))
+                        } catch (err) { alert(err instanceof Error ? err.message : 'Upload failed') }
+                        finally { setUploading(false) }
                       }}
                     />
                     {newFabric.imageUrl && (
-                      <div className="relative w-24 h-24 shrink-0 border rounded overflow-hidden bg-muted">
-                        <Image
-                          src={newFabric.imageUrl}
-                          alt="Preview"
-                          fill
-                          className="object-contain"
-                          unoptimized
-                        />
+                      <div className="relative w-20 h-20 shrink-0 border rounded overflow-hidden bg-muted">
+                        <Image src={newFabric.imageUrl} alt="Preview" fill className="object-contain" unoptimized />
                       </div>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground">Upload an image for this fabric.</p>
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => { setAddDialogOpen(false); setNewFabric(EMPTY_NEW_FABRIC) }}>
-                  Cancel
-                </Button>
+                <Button variant="outline" onClick={() => { setAddDialogOpen(false); setNewFabric(EMPTY_NEW_FABRIC) }}>Cancel</Button>
                 <Button onClick={handleAddFabric} disabled={addSaving}>
                   {addSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
                   Add Fabric
@@ -640,7 +757,13 @@ export default function FabricGalleryPage() {
       ) : filteredFabrics.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">
-            {fabrics.length === 0
+            {fetchError ? (
+              <div className="space-y-3">
+                <p className="text-red-500 font-medium">Failed to load fabrics</p>
+                <p className="text-sm">{fetchError}</p>
+                <Button variant="outline" size="sm" onClick={fetchFabrics}>Retry</Button>
+              </div>
+            ) : fabrics.length === 0
               ? (token ? 'No fabrics yet. Add one to get started.' : 'Please log in to view the fabric gallery.')
               : 'No fabrics match your filters.'}
           </CardContent>
@@ -681,6 +804,26 @@ export default function FabricGalleryPage() {
                   <Badge variant="outline" className="text-xs">{fabric.subcategory}</Badge>
                   {fabric.collection && (
                     <Badge variant="outline" className="text-xs">{fabric.collection}</Badge>
+                  )}
+                  {(fabric as any).stockStatus === 'discontinued' ? (
+                    <Badge className="text-xs bg-gray-100 text-gray-500 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700 hover:bg-gray-100 flex items-center gap-1">
+                      <CircleOff className="h-3 w-3" /> Discontinued
+                    </Badge>
+                  ) : (fabric as any).stockStatus === 'back_order' ? (
+                    <Badge className="text-xs bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-700 hover:bg-amber-50 flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {(fabric as any).expectedArrival
+                        ? `Due ${new Date((fabric as any).expectedArrival).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                        : 'Back Order'}
+                    </Badge>
+                  ) : (fabric.rollsAvailable ?? 0) > 0 ? (
+                    <Badge className="text-xs bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700 hover:bg-green-100 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> {fabric.rollsAvailable} rolls
+                    </Badge>
+                  ) : (
+                    <Badge className="text-xs bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700 hover:bg-green-100 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> In Stock
+                    </Badge>
                   )}
                 </div>
                 {(fabric as any).pricingCollectionId && (
@@ -757,149 +900,258 @@ export default function FabricGalleryPage() {
         </div>
       )}
 
+      {/* Bulk Upload Dialog */}
+      <Dialog open={bulkDialogOpen} onOpenChange={(open) => { setBulkDialogOpen(open); if (!open) { setBulkFile(null); setBulkResult(null) } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Bulk Upload Fabrics</DialogTitle>
+            <DialogDescription>Upload a CSV file to add multiple fabrics at once.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 py-2">
+            {/* Template download */}
+            <div className="rounded-lg border border-amber-100 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4 space-y-2">
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Step 1 — Download the template</p>
+              <p className="text-xs text-amber-700/80 dark:text-amber-400/70">Fill in the CSV with your fabric data. Required columns: <span className="font-mono">category</span>, <span className="font-mono">subcategory</span>, <span className="font-mono">color</span>.</p>
+              <Button variant="outline" size="sm" className="gap-1.5 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40" onClick={downloadTemplate}>
+                <Download className="h-3.5 w-3.5" />
+                Download CSV Template
+              </Button>
+            </div>
+
+            {/* CSV column reference */}
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 space-y-1.5">
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wide">CSV Columns</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">
+                <span><span className="font-mono text-gray-700 dark:text-gray-300">category</span> <span className="text-red-500">*</span></span>
+                <span><span className="font-mono text-gray-700 dark:text-gray-300">subcategory</span> <span className="text-red-500">*</span></span>
+                <span><span className="font-mono text-gray-700 dark:text-gray-300">color</span> <span className="text-red-500">*</span></span>
+                <span><span className="font-mono text-gray-700 dark:text-gray-300">collection</span></span>
+                <span><span className="font-mono text-gray-700 dark:text-gray-300">pricingCollectionId</span></span>
+                <span><span className="font-mono text-gray-700 dark:text-gray-300">opacity</span></span>
+                <span><span className="font-mono text-gray-700 dark:text-gray-300">width</span></span>
+                <span><span className="font-mono text-gray-700 dark:text-gray-300">minWidth</span></span>
+                <span><span className="font-mono text-gray-700 dark:text-gray-300">maxWidth</span></span>
+                <span><span className="font-mono text-gray-700 dark:text-gray-300">rollLength</span></span>
+                <span><span className="font-mono text-gray-700 dark:text-gray-300">inStock</span> (true/false)</span>
+                <span><span className="font-mono text-gray-700 dark:text-gray-300">rollsAvailable</span> (number)</span>
+              </div>
+            </div>
+
+            {/* File upload */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Step 2 — Upload your CSV</p>
+              <Label
+                htmlFor="bulk-csv-upload"
+                className="flex items-center gap-2 cursor-pointer border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg px-4 py-5 hover:border-amber-400 dark:hover:border-amber-600 transition-colors"
+              >
+                <Upload className="h-5 w-5 text-gray-400 shrink-0" />
+                <div className="min-w-0">
+                  {bulkFile ? (
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate block">{bulkFile.name}</span>
+                  ) : (
+                    <span className="text-sm text-gray-500">Click to select a .csv file</span>
+                  )}
+                </div>
+              </Label>
+              <input
+                id="bulk-csv-upload"
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={e => { setBulkFile(e.target.files?.[0] ?? null); setBulkResult(null) }}
+              />
+            </div>
+
+            {/* Results */}
+            {bulkResult && (
+              <div className="rounded-lg border p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                  <p className="text-sm font-medium text-green-700 dark:text-green-400">
+                    {bulkResult.inserted} of {bulkResult.total} fabrics imported successfully
+                  </p>
+                </div>
+                {bulkResult.errors.length > 0 && (
+                  <div className="space-y-1 pt-1">
+                    <p className="text-xs font-medium text-red-600 dark:text-red-400 flex items-center gap-1">
+                      <AlertCircle className="h-3.5 w-3.5" /> {bulkResult.errors.length} row{bulkResult.errors.length !== 1 ? 's' : ''} skipped
+                    </p>
+                    <div className="max-h-32 overflow-y-auto space-y-0.5">
+                      {bulkResult.errors.map(e => (
+                        <p key={e.row} className="text-xs text-red-500">Row {e.row}: {e.error}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setBulkDialogOpen(false); setBulkFile(null); setBulkResult(null) }}>
+              {bulkResult ? 'Close' : 'Cancel'}
+            </Button>
+            {!bulkResult && (
+              <Button onClick={handleBulkUpload} disabled={!bulkFile || bulkUploading}>
+                {bulkUploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                Import Fabrics
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Fabric Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={(open) => { setEditDialogOpen(open); if (!open) setEditingFabric(null) }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Fabric</DialogTitle>
+            <DialogTitle>Edit Fabric{editingFabric ? ` — ${editingFabric.color}` : ''}</DialogTitle>
             <DialogDescription>Update the details for this fabric.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              {/* Category */}
+          <div className="py-4 space-y-5">
+            {/* Row 1: Identity */}
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label>Category *</Label>
+                <Label>Product *</Label>
                 <Select value={editForm.category} onValueChange={v => setEditForm({ ...editForm, category: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select product" /></SelectTrigger>
                   <SelectContent>
-                    {FABRIC_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    {productOptions.map(p => <SelectItem key={p._id} value={p.name}>{p.name}</SelectItem>)}
+                    {!productOptions.some(p => p.name === editForm.category) && editForm.category && (
+                      <SelectItem value={editForm.category}>{editForm.category}</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
-
-              {/* Subcategory */}
               <div className="space-y-2">
-                <Label>Subcategory *</Label>
-                <Select value={editForm.subcategory} onValueChange={v => setEditForm({ ...editForm, subcategory: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select subcategory" /></SelectTrigger>
-                  <SelectContent>
-                    {FABRIC_SUBCATEGORIES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <Label>Openness *</Label>
+                {(() => {
+                  const sel = productOptions.find(p => p.name === editForm.category)
+                  const cats = sel?.categories ?? []
+                  return cats.length > 0 ? (
+                    <Select value={editForm.subcategory} onValueChange={v => setEditForm({ ...editForm, subcategory: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select openness" /></SelectTrigger>
+                      <SelectContent>
+                        {cats.map(c => <SelectItem key={c._id} value={c.name}>{c.name}</SelectItem>)}
+                        {!cats.some(c => c.name === editForm.subcategory) && editForm.subcategory && (
+                          <SelectItem value={editForm.subcategory}>{editForm.subcategory}</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input value={editForm.subcategory} onChange={e => setEditForm({ ...editForm, subcategory: e.target.value })} placeholder="e.g., 1%, Light Filtering" />
+                  )
+                })()}
               </div>
-
-              {/* Color */}
               <div className="space-y-2">
                 <Label>Color Name *</Label>
-                <Input value={editForm.color} onChange={e => setEditForm({ ...editForm, color: e.target.value })} placeholder="e.g., White, Sunrise, Sand" />
+                <Input value={editForm.color} onChange={e => setEditForm({ ...editForm, color: e.target.value })} placeholder="e.g., White, Sunrise" />
               </div>
+            </div>
 
-              {/* Collection */}
+            {/* Row 2: Collection + Pricing */}
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Collection</Label>
-                <Input value={editForm.collection} onChange={e => setEditForm({ ...editForm, collection: e.target.value })} placeholder="e.g., Infra, Salvus, Geneva" />
+                <Input value={editForm.collection} onChange={e => setEditForm({ ...editForm, collection: e.target.value })} placeholder="e.g., Infra, Salvus" />
               </div>
-
-              {/* Pricing Collection */}
-              <div className="space-y-2 md:col-span-2">
+              <div className="space-y-2 col-span-2">
                 <Label>Pricing Chart</Label>
                 <Select value={editForm.pricingCollectionId} onValueChange={v => setEditForm({ ...editForm, pricingCollectionId: v })}>
                   <SelectTrigger><SelectValue placeholder="Select pricing chart" /></SelectTrigger>
-                  <SelectContent>
-                    {QUOTE_COLLECTIONS.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                  </SelectContent>
+                  <SelectContent>{QUOTE_COLLECTIONS.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
+            </div>
 
-              {/* Opacity */}
-              <div className="space-y-2">
-                <Label>Opacity</Label>
-                <Input value={editForm.opacity} onChange={e => setEditForm({ ...editForm, opacity: e.target.value })} placeholder="e.g., 10%, 5%" />
-              </div>
-
-              {/* Roll Width */}
-              <div className="space-y-2">
-                <Label>Roll Width</Label>
-                <Input value={editForm.width} onChange={e => setEditForm({ ...editForm, width: e.target.value })} placeholder='e.g., 126"' />
-              </div>
-
-              {/* Min Width */}
-              <div className="space-y-2">
-                <Label>Min Width</Label>
-                <Input value={editForm.minWidth} onChange={e => setEditForm({ ...editForm, minWidth: e.target.value })} placeholder='e.g., 24"' />
-              </div>
-
-              {/* Max Width */}
-              <div className="space-y-2">
-                <Label>Max Width</Label>
-                <Input value={editForm.maxWidth} onChange={e => setEditForm({ ...editForm, maxWidth: e.target.value })} placeholder='e.g., 126"' />
-              </div>
-
-              {/* Roll Length */}
-              <div className="space-y-2">
-                <Label>Roll Length</Label>
-                <Input value={editForm.rollLength} onChange={e => setEditForm({ ...editForm, rollLength: e.target.value })} placeholder="e.g., 22 yd/roll" />
-              </div>
-
-              {/* Fabric Width — Duo Shades only */}
-              {editForm.category === 'Duo Shades' && (
-                <div className="space-y-2">
-                  <Label>Fabric Width (inches)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step={0.25}
-                    value={editForm.fabricWidth}
-                    onChange={e => setEditForm({ ...editForm, fabricWidth: e.target.value })}
-                    placeholder="e.g., 2.5"
-                  />
-                  <p className="text-xs text-muted-foreground">If less than 3&quot;, fabric wrap will be disabled in quotes.</p>
+            {/* Row 3: Availability */}
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-4 space-y-3">
+              <Label className="text-sm font-medium">Availability</Label>
+              <StockStatusSelector
+                value={editForm.stockStatus}
+                onChange={v => setEditForm({ ...editForm, stockStatus: v, expectedArrival: v !== 'back_order' ? '' : editForm.expectedArrival })}
+              />
+              {editForm.stockStatus === 'back_order' && (
+                <div className="grid grid-cols-3 gap-4 pt-1">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-amber-700 dark:text-amber-400 font-medium">Expected Arrival Date</Label>
+                    <Input
+                      type="date"
+                      value={editForm.expectedArrival}
+                      onChange={e => setEditForm({ ...editForm, expectedArrival: e.target.value })}
+                      className="border-amber-300 dark:border-amber-700 focus-visible:ring-amber-400"
+                    />
+                  </div>
+                  <div className="col-span-2 space-y-2">
+                    <Label className="text-xs text-muted-foreground">Rolls Available</Label>
+                    <Input type="number" min="0" value={editForm.rollsAvailable} onChange={e => setEditForm({ ...editForm, rollsAvailable: e.target.value })} placeholder="0" />
+                  </div>
+                </div>
+              )}
+              {editForm.stockStatus === 'in_stock' && (
+                <div className="grid grid-cols-3 gap-4 pt-1">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Rolls Available</Label>
+                    <Input type="number" min="0" value={editForm.rollsAvailable} onChange={e => setEditForm({ ...editForm, rollsAvailable: e.target.value })} placeholder="0" />
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Image upload */}
+            {/* Row 4: Specs */}
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Opacity</Label>
+                <Input value={editForm.opacity} onChange={e => setEditForm({ ...editForm, opacity: e.target.value })} placeholder="e.g., 10%, 5%" />
+              </div>
+              <div className="space-y-2">
+                <Label>Roll Width</Label>
+                <Input value={editForm.width} onChange={e => setEditForm({ ...editForm, width: e.target.value })} placeholder='e.g., 126"' />
+              </div>
+              <div className="space-y-2">
+                <Label>Roll Length</Label>
+                <Input value={editForm.rollLength} onChange={e => setEditForm({ ...editForm, rollLength: e.target.value })} placeholder="e.g., 22 yd/roll" />
+              </div>
+              <div className="space-y-2">
+                <Label>Min Width</Label>
+                <Input value={editForm.minWidth} onChange={e => setEditForm({ ...editForm, minWidth: e.target.value })} placeholder='e.g., 24"' />
+              </div>
+              <div className="space-y-2">
+                <Label>Max Width</Label>
+                <Input value={editForm.maxWidth} onChange={e => setEditForm({ ...editForm, maxWidth: e.target.value })} placeholder='e.g., 126"' />
+              </div>
+              {editForm.category === 'Duo Shades' && (
+                <div className="space-y-2">
+                  <Label>Fabric Width (in)</Label>
+                  <Input type="number" min={0} step={0.25} value={editForm.fabricWidth} onChange={e => setEditForm({ ...editForm, fabricWidth: e.target.value })} placeholder="e.g., 2.5" />
+                  <p className="text-xs text-muted-foreground">Under 3&quot; disables fabric wrap.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Row 5: Image */}
             <div className="space-y-2">
               <Label>Fabric Image</Label>
-              <div className="flex gap-4 items-start flex-wrap">
+              <div className="flex gap-4 items-center flex-wrap">
                 <Label htmlFor="edit-fabric-upload" className="cursor-pointer border rounded-md px-3 py-2 text-sm font-medium hover:bg-muted flex items-center gap-2 shrink-0">
                   <Upload className="h-4 w-4" />
                   {editUploading ? 'Uploading…' : 'Upload new image'}
                 </Label>
-                <input
-                  id="edit-fabric-upload"
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  disabled={editUploading}
+                <input id="edit-fabric-upload" type="file" accept="image/*" className="hidden" disabled={editUploading}
                   onChange={async (e) => {
-                    const file = e.target.files?.[0]
-                    if (!file || !token) return
-                    setEditUploading(true)
-                    e.target.value = ''
+                    const file = e.target.files?.[0]; if (!file || !token) return
+                    setEditUploading(true); e.target.value = ''
                     try {
-                      const form = new FormData()
-                      form.append('file', file)
-                      const res = await fetch('/api/fabric-gallery/upload', {
-                        method: 'POST',
-                        headers: { Authorization: `Bearer ${token}` },
-                        body: form,
-                      })
-                      if (!res.ok) {
-                        const data = await res.json().catch(() => ({}))
-                        throw new Error(data.error || 'Upload failed')
-                      }
+                      const form = new FormData(); form.append('file', file)
+                      const res = await fetch('/api/fabric-gallery/upload', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form })
+                      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Upload failed') }
                       const { url, publicId } = await res.json()
-                      setEditForm((prev) => ({ ...prev, imageUrl: url, cloudinaryPublicId: publicId ?? '' }))
-                    } catch (err) {
-                      alert(err instanceof Error ? err.message : 'Upload failed')
-                    } finally {
-                      setEditUploading(false)
-                    }
+                      setEditForm(prev => ({ ...prev, imageUrl: url, cloudinaryPublicId: publicId ?? '' }))
+                    } catch (err) { alert(err instanceof Error ? err.message : 'Upload failed') }
+                    finally { setEditUploading(false) }
                   }}
                 />
                 {editForm.imageUrl && (
-                  <div className="relative w-24 h-24 shrink-0 border rounded overflow-hidden bg-muted">
+                  <div className="relative w-20 h-20 shrink-0 border rounded overflow-hidden bg-muted">
                     <Image src={editForm.imageUrl} alt="Preview" fill className="object-contain" unoptimized />
                   </div>
                 )}

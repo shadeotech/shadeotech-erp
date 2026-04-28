@@ -226,6 +226,8 @@ export function QuoteBuilder({ customerId, initialQuote, quoteId, customerLocked
   // Fabric gallery for cascade dropdowns
   const [fabricGallery, setFabricGallery] = useState<Fabric[]>([])
   const [fabricGalleryLoading, setFabricGalleryLoading] = useState(false)
+  // Product list from Product model (drives the product dropdown)
+  const [productModelList, setProductModelList] = useState<string[]>([])
 
   // Quote state - using tabs instead of steps (default to products when customer is locked)
   const [activeTab, setActiveTab] = useState(customerLocked ? 'products' : 'customer')
@@ -239,6 +241,7 @@ export function QuoteBuilder({ customerId, initialQuote, quoteId, customerLocked
   // New header fields
   const [saleAgent, setSaleAgent] = useState('')
   const [discountType, setDiscountType] = useState('No discount')
+  const [discountCalc, setDiscountCalc] = useState<'Percentage' | 'Fixed'>('Percentage')
   const [discountValue, setDiscountValue] = useState(0)
   const [adminNote, setAdminNote] = useState('')
   const [installationAmount, setInstallationAmount] = useState(0)
@@ -624,6 +627,7 @@ export function QuoteBuilder({ customerId, initialQuote, quoteId, customerLocked
     // Preload new fields
     setSaleAgent((initialQuote as any).saleAgent || '')
     setDiscountType((initialQuote as any).discountType || 'No discount')
+    setDiscountCalc((initialQuote as any).discountCalc || 'Percentage')
     setDiscountValue((initialQuote as any).discountValue || 0)
     setAdminNote((initialQuote as any).adminNote || '')
     setInstallationAmount((initialQuote as any).installationAmount || 0)
@@ -664,18 +668,27 @@ export function QuoteBuilder({ customerId, initialQuote, quoteId, customerLocked
     removeQuickQuote(fromQuickQuoteId)
   }, [fromQuickQuoteId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch fabric gallery for cascade dropdowns
+  // Fetch fabric gallery for cascade dropdowns + product list from Product model
   useEffect(() => {
     const fetchFabricGallery = async () => {
       if (!token) return
       try {
         setFabricGalleryLoading(true)
-        const res = await fetch('/api/fabric-gallery', {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (res.ok) {
-          const data = await res.json()
+        const [fabricRes, productRes] = await Promise.all([
+          fetch('/api/fabric-gallery', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch('/api/production/products', { headers: { Authorization: `Bearer ${token}` } }),
+        ])
+        if (fabricRes.ok) {
+          const data = await fabricRes.json()
           setFabricGallery(data.fabrics || [])
+        }
+        if (productRes.ok) {
+          const data = await productRes.json()
+          const visible = (data as any[])
+            .filter((p) => p.visibleInQuote)
+            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name))
+            .map((p) => p.name)
+          setProductModelList(visible)
         }
       } catch (error) {
         console.error('Error fetching fabric gallery:', error)
@@ -884,14 +897,27 @@ export function QuoteBuilder({ customerId, initialQuote, quoteId, customerLocked
     return sel?.sideMark || ''
   }, [customerLocked, customerSideMark, newCustomerSideMark, selectedCustomerId, users])
 
-  // Cascade options derived from fabric gallery
+  // Product options: prefer Product model list (visibility-filtered), fall back to FabricGallery categories
   const productOptions = useMemo(() => {
+    if (productModelList.length > 0) {
+      // Collapse all "Exterior - X" variants into a single "Exterior" entry for the first dropdown
+      const result: string[] = []
+      let hasExterior = false
+      for (const name of productModelList) {
+        if (name.startsWith('Exterior')) {
+          if (!hasExterior) { result.push('Exterior'); hasExterior = true }
+        } else {
+          result.push(name)
+        }
+      }
+      return result
+    }
     const cats = Array.from(new Set(fabricGallery.map((f) => f.category))).sort()
     const hasExterior = cats.some((c) => c.startsWith('Exterior'))
     const filtered = cats.filter((c) => !c.startsWith('Exterior'))
     if (hasExterior) filtered.push('Exterior')
     return filtered.sort()
-  }, [fabricGallery])
+  }, [productModelList, fabricGallery])
 
   // Grouped version for the dropdown: Interior / Exterior
   const groupedProductOptions = useMemo(() => ({
@@ -1454,11 +1480,11 @@ export function QuoteBuilder({ customerId, initialQuote, quoteId, customerLocked
   const subtotal = itemsSubtotal + addOnsTotal
 
   // Discount calculation
-  const discountAmount = discountType === 'Percentage'
-    ? subtotal * (discountValue / 100)
-    : discountType === 'Fixed'
-      ? discountValue
-      : 0
+  const discountAmount = discountType === 'No discount'
+    ? 0
+    : discountCalc === 'Percentage'
+      ? subtotal * (discountValue / 100)
+      : discountValue
   const afterDiscount = subtotal - discountAmount
   const effectiveTaxRate = (customerTaxExempt || isTaxExempt) ? 0 : taxRate
   const taxAmount = afterDiscount * (effectiveTaxRate / 100)
@@ -3010,15 +3036,31 @@ export function QuoteBuilder({ customerId, initialQuote, quoteId, customerLocked
                     <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="No discount">No discount</SelectItem>
-                      <SelectItem value="Percentage">Percentage (%)</SelectItem>
-                      <SelectItem value="Fixed">Fixed Amount ($)</SelectItem>
+                      <SelectItem value="Military Discount">Military Discount</SelectItem>
+                      <SelectItem value="Promo Discount">Promo Discount</SelectItem>
+                      <SelectItem value="Friend &amp; Family">Friend &amp; Family</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
 
               {discountType !== 'No discount' && (
-                <Input type="number" min={0} step={discountType === 'Percentage' ? '0.1' : '0.01'} placeholder={discountType === 'Percentage' ? 'Discount %' : 'Discount $'} value={discountValue || ''} onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)} className="h-9" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Discount Calculation</Label>
+                    <Select value={discountCalc} onValueChange={(v) => { setDiscountCalc(v as 'Percentage' | 'Fixed'); setDiscountValue(0) }}>
+                      <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Percentage">Percentage %</SelectItem>
+                        <SelectItem value="Fixed">Fixed Value Amount</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">{discountCalc === 'Percentage' ? 'Discount %' : 'Discount Amount ($)'}</Label>
+                    <Input type="number" min={0} step={discountCalc === 'Percentage' ? '0.1' : '0.01'} placeholder={discountCalc === 'Percentage' ? '0.0' : '0.00'} value={discountValue || ''} onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)} className="h-9" />
+                  </div>
+                </div>
               )}
 
               <div className="grid grid-cols-2 gap-3">
@@ -3307,7 +3349,7 @@ export function QuoteBuilder({ customerId, initialQuote, quoteId, customerLocked
               </div>
               {discountAmount > 0 && (
                 <div className="flex justify-between text-sm text-green-600 dark:text-green-400">
-                  <span>Discount ({discountType === 'Percentage' ? `${discountValue}%` : 'Fixed'})</span>
+                  <span>{discountType} ({discountCalc === 'Percentage' ? `${discountValue}%` : `$${discountValue}`})</span>
                   <span>-{formatCurrency(discountAmount)}</span>
                 </div>
               )}

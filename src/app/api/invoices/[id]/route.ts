@@ -45,6 +45,16 @@ function toApiInvoice(doc: any) {
     dueDate: doc.dueDate ? new Date(doc.dueDate).toISOString().split('T')[0] : undefined,
     createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString().split('T')[0] : undefined,
     notes: doc.notes,
+    emailLog: (doc.emailLog ?? []).map((e: any) => ({
+      _id: e._id?.toString(),
+      type: e.type,
+      sentAt: e.sentAt ? new Date(e.sentAt).toISOString() : undefined,
+      sentTo: e.sentTo,
+      openCount: e.openCount ?? 0,
+      firstOpenedAt: e.firstOpenedAt ? new Date(e.firstOpenedAt).toISOString() : undefined,
+      lastOpenedAt: e.lastOpenedAt ? new Date(e.lastOpenedAt).toISOString() : undefined,
+    })),
+    ccEmails: doc.ccEmails ?? [],
     billToStreet: doc.billToStreet,
     billToCity: doc.billToCity,
     billToState: doc.billToState,
@@ -55,6 +65,7 @@ function toApiInvoice(doc: any) {
     shipToState: doc.shipToState,
     shipToPostcode: doc.shipToPostcode,
     shipToCountry: doc.shipToCountry,
+    notes: doc.notes,
   }
 }
 
@@ -134,7 +145,7 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { action, totalAmount, items } = body
+    const { action, totalAmount, items, dueDate, notes, ccEmails, subtotal, taxRate, taxAmount } = body
 
     if (action === 'send') {
       if (doc.status === 'SENT' && doc.sentAt) {
@@ -194,13 +205,21 @@ export async function PATCH(
       return NextResponse.json({ invoice: toApiInvoice(doc.toObject()) }, { status: 200 })
     }
 
-    if (action === 'update' || totalAmount !== undefined || items !== undefined) {
+    if (action === 'update' || totalAmount !== undefined || items !== undefined || dueDate !== undefined || notes !== undefined || ccEmails !== undefined || subtotal !== undefined) {
       if (totalAmount !== undefined) {
         doc.totalAmount = Number(totalAmount)
         doc.balanceAmount = Math.max(0, doc.totalAmount - (doc.paidAmount ?? 0))
       }
+      if (subtotal !== undefined) doc.subtotal = Number(subtotal)
+      if (taxRate !== undefined) doc.taxRate = Number(taxRate)
+      if (taxAmount !== undefined) doc.taxAmount = Number(taxAmount)
       if (items !== undefined && Array.isArray(items)) {
         doc.items = items
+      }
+      if (dueDate !== undefined) doc.dueDate = dueDate ? new Date(dueDate) : undefined
+      if (notes !== undefined) doc.notes = notes ?? undefined
+      if (ccEmails !== undefined && Array.isArray(ccEmails)) {
+        doc.ccEmails = ccEmails.map((e: string) => e.trim().toLowerCase()).filter(Boolean)
       }
       await doc.save()
       return NextResponse.json({ invoice: toApiInvoice(doc.toObject()) }, { status: 200 })

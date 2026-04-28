@@ -6,17 +6,27 @@ export interface IFaqItem {
   answer: string
 }
 
+export interface IInvoiceReminderConfig {
+  enabled: boolean
+  frequencyDays: number   // send reminder every N days after due date
+  maxReminders: number    // stop after N reminders per invoice
+  emailSubject?: string
+  emailMessage?: string
+}
+
 export interface ICompanySettings {
   _id?: mongoose.Types.ObjectId
   companyAddress: string
   contractTemplates?: StoredContractTemplates
   invoiceTemplateConfig?: Record<string, unknown>
+  invoiceReminderConfig?: IInvoiceReminderConfig
   bookingBuffer: number
   bookingStartHour: number
   bookingLastSlotHour: number
   manufacturingVideoUrl?: string
   faqs?: IFaqItem[]
   ticketSubjects?: string[]
+  productCategories?: string[]
   updatedAt?: Date
 }
 
@@ -36,12 +46,23 @@ const CompanySettingsSchema = new Schema<ICompanySettings>(
       INTERIOR_AND_EXTERIOR: { type: String },
     },
     invoiceTemplateConfig: { type: Schema.Types.Mixed },
+    invoiceReminderConfig: {
+      type: new Schema({
+        enabled: { type: Boolean, default: false },
+        frequencyDays: { type: Number, default: 3 },
+        maxReminders: { type: Number, default: 5 },
+        emailSubject: String,
+        emailMessage: String,
+      }, { _id: false }),
+      default: () => ({ enabled: false, frequencyDays: 3, maxReminders: 5 }),
+    },
     bookingBuffer: { type: Number, default: 2 },
     bookingStartHour: { type: Number, default: 10 },
     bookingLastSlotHour: { type: Number, default: 15 },
     manufacturingVideoUrl: { type: String, default: '' },
     faqs: [{ question: { type: String }, answer: { type: String }, _id: false }],
     ticketSubjects: [{ type: String }],
+    productCategories: [{ type: String }],
   },
   { timestamps: true, _id: false }
 )

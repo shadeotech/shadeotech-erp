@@ -105,7 +105,6 @@ const navItems: NavItem[] = [
       { title: 'Pending Approval', href: '/production/pending-approval' },
       { title: 'Orders', href: '/production/orders' },
       { title: 'Schedule', href: '/production/schedule' },
-      { title: 'Workshop', href: '/production/workshop' },
       { title: 'Inventory', href: '/production/inventory' },
       { title: 'Products', href: '/production/products' },
       { title: 'Fabric Gallery', href: '/fabric-gallery' },

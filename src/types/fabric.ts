@@ -1,3 +1,5 @@
+export type StockStatus = 'in_stock' | 'back_order' | 'discontinued'
+
 export interface Fabric {
   id: string
   category: string // e.g., "Duo Shades", "Roller Shades"
@@ -15,4 +17,8 @@ export interface Fabric {
   maxWidth?: string // Maximum width e.g., "126\"", "144\""
   rollLength?: string // e.g., "22 yd/roll", "33 yd/roll"
   fabricWidth?: number // Duo Shades: fabric roll width in inches; < 3" disables fabric wrap in cassette
+  stockStatus?: StockStatus
+  expectedArrival?: string // ISO date string, set when stockStatus is 'back_order'
+  inStock?: boolean // legacy; derived from stockStatus when present
+  rollsAvailable?: number
 }

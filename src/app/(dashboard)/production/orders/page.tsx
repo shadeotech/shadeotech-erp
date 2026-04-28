@@ -52,17 +52,11 @@ const workflowSteps: { key: ProductionStatus; label: string; short: string }[] =
   { key: 'SHIPPED_INSTALLED',    label: 'Shipped/Installed',    short: 'Shipped' },
 ]
 
-const PIPELINE_PROGRESS: Record<string, number> = {
-  PENDING_APPROVAL: 13,
-  READY_FOR_PRODUCTION: 25,
-  PRODUCTION_CHECK: 37,
-  COMPONENT_CUT: 50,
-  FABRIC_CUT: 62,
-  ASSEMBLE: 75,
-  QUALITY_CHECK: 87,
-  PACKING: 95,
-  SHIPPED_INSTALLED: 100,
-}
+// Derived from workflowSteps so the Progress column always matches the arrow bar
+const PIPELINE_PROGRESS: Record<string, number> = Object.fromEntries([
+  ['PENDING_APPROVAL', 0],
+  ...workflowSteps.map((s, i) => [s.key, Math.round(((i + 1) / workflowSteps.length) * 100)]),
+])
 
 const STATUS_COLORS: Record<string, string> = {
   READY_FOR_PRODUCTION: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
@@ -147,7 +141,7 @@ function ArrowProgressBar({ order }: { order: ProductionOrder }) {
 
 function exportCSV(orders: ProductionOrder[]) {
   const rows = [
-    ['Order #', 'Customer', 'Side Mark', 'Products', 'Order Date', 'Installation Date', 'Shades', 'Status', 'Progress'],
+    ['Order #', 'Customer', 'Side Mark', 'Products', 'Order Date', 'Installation Date', 'Shades', 'Status'],
     ...orders.map(o => [
       o.orderNumber,
       o.customerName,
@@ -157,7 +151,6 @@ function exportCSV(orders: ProductionOrder[]) {
       o.installationDate ? format(new Date(o.installationDate), 'yyyy-MM-dd') : '',
       String(o.totalShades),
       o.status,
-      `${PIPELINE_PROGRESS[o.status] ?? 0}%`,
     ]),
   ]
   const csv = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n')
@@ -386,14 +379,13 @@ export default function ProductionOrdersPage() {
               <TableHead className="w-28">Order Date</TableHead>
               <TableHead className="w-28">Installation</TableHead>
               <TableHead className="w-16 text-center">Shades</TableHead>
-              <TableHead className="w-24 text-center">Progress</TableHead>
               <TableHead>Production Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {paginated.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-16 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-16 text-muted-foreground">
                   <Package className="h-10 w-10 mx-auto mb-3 opacity-30" />
                   <p className="font-medium">No orders found</p>
                   <p className="text-sm mt-1 text-gray-400">
@@ -445,19 +437,6 @@ export default function ProductionOrdersPage() {
                     <span className="text-sm font-semibold text-gray-900 dark:text-white">
                       {order.totalShades}
                     </span>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <div className="flex flex-col items-center gap-1">
-                      <span className="text-xs font-bold text-gray-900 dark:text-white">
-                        {PIPELINE_PROGRESS[order.status] ?? 0}%
-                      </span>
-                      <div className="w-16 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700">
-                        <div
-                          className="h-1.5 rounded-full bg-orange-500"
-                          style={{ width: `${PIPELINE_PROGRESS[order.status] ?? 0}%` }}
-                        />
-                      </div>
-                    </div>
                   </TableCell>
                   <TableCell>
                     <ArrowProgressBar order={order} />

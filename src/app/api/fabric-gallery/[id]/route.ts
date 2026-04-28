@@ -5,6 +5,7 @@ import FabricGallery from '@/lib/models/FabricGallery'
 import { verifyAuth } from '@/lib/auth'
 
 function toApi(doc: any) {
+  const stockStatus = doc.stockStatus ?? (doc.inStock === false ? 'back_order' : 'in_stock')
   return {
     id: doc._id.toString(),
     category: doc.category ?? '',
@@ -23,6 +24,10 @@ function toApi(doc: any) {
     maxWidth: doc.maxWidth,
     rollLength: doc.rollLength,
     fabricWidth: doc.fabricWidth ?? null,
+    stockStatus,
+    expectedArrival: doc.expectedArrival ?? null,
+    inStock: stockStatus === 'in_stock',
+    rollsAvailable: doc.rollsAvailable ?? 0,
   }
 }
 
@@ -58,6 +63,12 @@ export async function PATCH(
     if (body.imageUrl !== undefined) updates.imageUrl = body.imageUrl ? String(body.imageUrl).trim() : undefined
     if (body.cloudinaryPublicId !== undefined) updates.cloudinaryPublicId = body.cloudinaryPublicId ? String(body.cloudinaryPublicId).trim() : undefined
     if (body.imageFilename !== undefined) updates.imageFilename = body.imageFilename ? String(body.imageFilename).trim() : 'placeholder.jpg'
+    if (body.stockStatus !== undefined) {
+      updates.stockStatus = body.stockStatus
+      updates.inStock = body.stockStatus === 'in_stock'
+      updates.expectedArrival = body.stockStatus === 'back_order' && body.expectedArrival ? String(body.expectedArrival).trim() : undefined
+    }
+    if (body.rollsAvailable !== undefined) updates.rollsAvailable = Number(body.rollsAvailable) || 0
 
     const doc = await FabricGallery.findByIdAndUpdate(
       id,

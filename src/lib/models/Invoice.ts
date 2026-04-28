@@ -10,6 +10,17 @@ export interface IInvoiceItem {
   quantity: number
   unitPrice: number
   totalPrice: number
+  taxable?: boolean
+}
+
+export interface IEmailLogEntry {
+  type: 'invoice' | 'reminder'
+  sentAt: Date
+  trackingId: string
+  sentTo?: string
+  openCount: number
+  firstOpenedAt?: Date
+  lastOpenedAt?: Date
 }
 
 export interface IInvoice extends Document {
@@ -45,6 +56,9 @@ export interface IInvoice extends Document {
   shipToPostcode?: string
   shipToCountry?: string
   stripeCustomerId?: string
+  ccEmails?: string[]
+  // Email tracking & reminder log
+  emailLog: IEmailLogEntry[]
   createdAt: Date
   updatedAt: Date
 }
@@ -60,8 +74,22 @@ const InvoiceItemSchema = new Schema<IInvoiceItem>(
     quantity: { type: Number, required: true, default: 1 },
     unitPrice: { type: Number, required: true },
     totalPrice: { type: Number, required: true },
+    taxable: { type: Boolean, default: false },
   },
   { _id: false }
+)
+
+const EmailLogEntrySchema = new Schema<IEmailLogEntry>(
+  {
+    type: { type: String, enum: ['invoice', 'reminder'], required: true },
+    sentAt: { type: Date, required: true },
+    trackingId: { type: String, required: true, index: true },
+    sentTo: String,
+    openCount: { type: Number, default: 0 },
+    firstOpenedAt: Date,
+    lastOpenedAt: Date,
+  },
+  { _id: true }
 )
 
 const InvoiceSchema = new Schema<IInvoice>(
@@ -102,6 +130,8 @@ const InvoiceSchema = new Schema<IInvoice>(
     shipToPostcode: String,
     shipToCountry: String,
     stripeCustomerId: String,
+    ccEmails: { type: [String], default: [] },
+    emailLog: { type: [EmailLogEntrySchema], default: [] },
   },
   { timestamps: true }
 )

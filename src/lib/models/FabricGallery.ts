@@ -11,13 +11,17 @@ export interface IFabricGallery {
   collection?: string
   pricingCollectionId?: string
   imageFilename: string
-  imageUrl?: string // Cloudinary URL (takes priority over imageFilename)
+  imageUrl?: string
   cloudinaryPublicId?: string
   width?: string
   minWidth?: string
   maxWidth?: string
   rollLength?: string
   fabricWidth?: number
+  stockStatus?: 'in_stock' | 'back_order' | 'discontinued'
+  expectedArrival?: string
+  inStock?: boolean
+  rollsAvailable?: number
   createdAt?: Date
   updatedAt?: Date
 }
@@ -40,6 +44,10 @@ const FabricGallerySchema = new Schema<IFabricGallery>(
     maxWidth: { type: String, trim: true },
     rollLength: { type: String, trim: true },
     fabricWidth: { type: Number },
+    stockStatus: { type: String, enum: ['in_stock', 'back_order', 'discontinued'] },
+    expectedArrival: { type: String, trim: true },
+    inStock: { type: Boolean, default: true },
+    rollsAvailable: { type: Number, default: 0 },
   },
   { timestamps: true }
 )
